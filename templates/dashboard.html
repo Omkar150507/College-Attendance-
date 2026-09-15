@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% block content %}
+<div class="page-head"><div><h1>Dashboard</h1><p>Welcome, {{ session.get('full_name') or session.get('username') }}</p></div><span class="date-chip">{{ today }}</span></div>
+<div class="cards">
+  <div class="card"><span>Total Students</span><strong>{{ total }}</strong></div>
+  <div class="card"><span>Present Today</span><strong>{{ present }}</strong><small class="muted">attendance marks</small></div>
+  <div class="card"><span>Absent Today</span><strong>{{ absent }}</strong><small class="muted">attendance marks</small></div>
+  <div class="card"><span>Today Attendance</span><strong>{{ today_pct }}%</strong><small class="muted">across marked lectures</small></div>
+  <div class="card"><span>Overall Attendance</span><strong>{{ avg }}%</strong></div>
+  {% if session.get('role')=='admin' %}<div class="card"><span>Pending Teachers</span><strong>{{ pending }}</strong></div>{% endif %}
+</div>
+<div class="panel quick-actions"><div class="panel-head"><h2>Quick Access</h2></div><div class="quick-grid"><a class="button primary" href="{{url_for('take_attendance')}}">📝 Take Attendance</a><a class="button" href="{{url_for('reports')}}">📊 Detailed Reports</a>{% if session.get('role')=='admin' %}<a class="button" href="{{url_for('students')}}">👨‍🎓 Students</a><a class="button" href="{{url_for('teachers')}}">👩‍🏫 Teachers</a>{% endif %}</div></div>
+<div class="panel">
+  <div class="panel-head"><h2>Year-wise Attendance — Today</h2><span>Each year is shown separately</span></div>
+  <div class="table-wrap"><table class="year-table"><tr><th>Year</th><th>Total Students</th><th>Present Students</th><th>Absent Students</th><th>Attendance %</th><th>Action</th></tr>
+  {% for y in year_stats %}<tr><td><strong>{{y.year}}</strong></td><td>{{y.total}}</td><td>{{y.present}}</td><td>{{y.absent}}</td><td><strong>{{y.pct}}%</strong><small class="muted"> ({{y.present_marks}}/{{y.present_marks+y.absent_marks}} marks)</small></td><td><a class="button small primary" href="{{url_for('take_attendance', year=y.year)}}">Take Attendance</a></td></tr>{% endfor %}
+  </table></div>
+  <div class="info-box" style="margin-top:12px">If a subject has 2–3 lectures in one day, each lecture is recorded separately. Attendance % is calculated from all marked lecture entries.</div>
+</div>
+<div class="panel"><div class="panel-head"><h2>Low Attendance Students</h2><span>Below {{ threshold }}%</span></div><table><tr><th>PRN</th><th>Name</th><th>Year</th><th>Course</th><th>Attendance</th></tr>{% for s in low %}<tr><td>{{s.prn or "—"}}</td><td>{{s.name}}</td><td>{{s.year}}</td><td>{{s.course}}</td><td class="low">{{s.pct}}%</td></tr>{% else %}<tr><td colspan="5">No low-attendance students.</td></tr>{% endfor %}</table></div>
+{% if session.get('role')!='admin' %}<div class="info-box">Your attendance screen shows only subjects assigned to your teacher account.</div>{% endif %}
+{% endblock %}
