@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head"><div><h1>Attendance History</h1><p>View saved attendance sessions and remove a complete wrong session.</p></div><a class="button" href="{{ url_for('take_attendance') }}">Take Attendance</a></div>
+<div class="panel">
+<form method="get" class="filters">
+<div><label>Year</label><select name="year"><option value="">All Years</option>{% for y in years %}<option value="{{y}}" {% if year==y %}selected{% endif %}>{{y}}</option>{% endfor %}</select></div>
+<div><label>Subject</label><select name="subject_id"><option value="">All Subjects</option>{% for s in subjects %}<option value="{{s.id}}" {% if subject_id==s.id %}selected{% endif %}>{{s.code}} — {{s.name}}</option>{% endfor %}</select></div>
+<div><label>From</label><input type="date" name="from_date" value="{{from_date}}"></div><div><label>To</label><input type="date" name="to_date" value="{{to_date}}"></div>
+<div style="display:flex;gap:8px;align-items:end"><button class="button primary">Filter</button><a class="button" href="{{url_for('attendance_history')}}">Clear</a></div>
+</form>
+<div class="table-wrap"><table><tr><th>Date</th><th>Year</th><th>Subject</th><th>Lecture</th><th>Time</th><th>Total</th><th>Present</th><th>Absent</th><th>Action</th></tr>
+{% for r in rows %}<tr><td>{{r.attendance_date}}</td><td>{{r.year}}</td><td>{{r.code}} — {{r.subject_name}}</td><td>{{r.lecture_no}}</td><td>{{r.lecture_time or '—'}}</td><td>{{r.total}}</td><td>{{r.present}}</td><td>{{r.absent}}</td><td>{% if session.get('role')=='admin' %}<form method="post" action="{{url_for('delete_attendance_session')}}" onsubmit="return confirm('Delete the complete attendance for {{r.attendance_date}}, {{r.code}}, Lecture {{r.lecture_no}}? This cannot be undone.')"><input type="hidden" name="attendance_date" value="{{r.attendance_date}}"><input type="hidden" name="subject_id" value="{{r.subject_id}}"><input type="hidden" name="lecture_no" value="{{r.lecture_no}}"><button class="link danger">Delete</button></form>{% else %}<span class="muted">Admin only</span>{% endif %}</td></tr>
+{% else %}<tr><td colspan="9" class="muted">No attendance sessions found.</td></tr>{% endfor %}</table></div></div>
+{% endblock %}
