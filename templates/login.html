@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block login_content %}
+<div class="login-page">
+  <div class="login-visual">
+    <div class="visual-glow"></div>
+    <img class="login-visual-logo" src="{{ url_for('static', filename=logo_file) }}" alt="College logo">
+    <h1>{{ college_name }}</h1>
+    <p>{{ college_tagline }}</p>
+    <div class="visual-line"></div>
+    <span>Track · Manage · Build a Better Tomorrow</span>
+    <div class="visual-features"><div>♙<small>Students<br>Attendance</small></div><div>♟<small>Teachers<br>Access</small></div><div>⚙<small>Admin<br>Control</small></div></div>
+  </div>
+  <div class="login-card">
+    <img class="login-logo" src="{{ url_for('static', filename=logo_file) }}" alt="College logo">
+    <h1>Welcome Back</h1>
+    <p class="login-subtitle">Sign in to continue to the attendance management system.</p>
+    {% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}{% endwith %}
+    <form method="post" class="login-form">
+      <label>Username</label><div class="input-icon"><span>♙</span><input name="username" required autocomplete="username" placeholder="Enter username"></div>
+      <label>Password</label><div class="input-icon"><span>●</span><input type="password" name="password" required autocomplete="current-password" placeholder="Enter password"><button type="button" class="password-toggle" onclick="const i=this.parentElement.querySelector('input');i.type=i.type==='password'?'text':'password'">◉</button></div>
+      <button class="primary login-submit" type="submit">Login securely <span>→</span></button>
+    </form>
+    <div class="login-links">
+      <a href="{{ url_for('forgot_password') }}">♙ &nbsp; Forgot Password?</a>
+      <a href="{{ url_for('register') }}">♟ &nbsp; Teacher Registration</a>
+      <a href="{{ url_for('student_register') }}">♙ &nbsp; Student Registration</a>
+    </div>
+    <div class="login-footer">{{ college_name }} <span>·</span> B.Pharm<br><strong>Attendance System</strong></div>
+  </div>
+</div>
+{% endblock %}

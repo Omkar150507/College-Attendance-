@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-head">
+  <div><div class="eyebrow">OVERVIEW</div><h1>Good Morning, {{ session.get('full_name') or session.get('username') }}</h1><p>Here’s today’s attendance overview for {{ college_name }}.</p></div>
+  <div class="date-chip large"><span>▣</span><div><strong>{{ today }}</strong><small>Today</small></div></div>
+</div>
+
+<div class="stat-grid">
+  <div class="stat-card blue"><div class="stat-icon">♙</div><div><span>Total Students</span><strong>{{ total }}</strong><small>B.Pharm · 1st–4th Year</small></div></div>
+  <div class="stat-card green"><div class="stat-icon">✓</div><div><span>Present Today</span><strong>{{ present }}</strong><small>{{ today_pct }}%</small></div></div>
+  <div class="stat-card red"><div class="stat-icon">!</div><div><span>Absent Today</span><strong>{{ absent }}</strong><small>{{ (100-today_pct)|round(1) }}%</small></div></div>
+  <div class="stat-card purple"><div class="stat-icon">%</div><div><span>Overall Attendance</span><strong>{{ avg }}%</strong><small>All recorded lectures</small></div></div>
+  {% if session.get('role')=='admin' %}<div class="stat-card amber"><div class="stat-icon">!</div><div><span>Pending Teachers</span><strong>{{ pending }}</strong><small>Awaiting approval</small></div></div>{% endif %}
+</div>
+
+<div class="content-grid main-dashboard-grid">
+  <section class="panel year-panel">
+    <div class="panel-head"><div><div class="eyebrow">TODAY</div><h2>Year-wise Attendance</h2></div><span class="muted">Each year is shown separately</span></div>
+    <div class="year-cards">
+      {% for y in year_stats %}
+      <div class="year-card year-{{ loop.index }}">
+        <div class="year-card-top"><span class="mini-icon">{{ loop.index }}</span><strong>{{ y.year }}</strong></div>
+        <div class="year-number">{{ y.total }}</div><small>Total Students</small>
+        <div class="year-lines"><div><span>Present</span><b>{{ y.present }}</b></div><div><span>Absent</span><b>{{ y.absent }}</b></div></div>
+        <div class="ring-row"><div class="ring" style="--pct:{{ y.pct }}"><span>{{ y.pct }}%</span></div><small>Attendance<br>today</small></div>
+        <a href="{{ url_for('take_attendance', year=y.year) }}" class="mini-action">Take Attendance →</a>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel quick-panel">
+    <div class="panel-head"><div><div class="eyebrow">SHORTCUTS</div><h2>Quick Access</h2></div></div>
+    <div class="quick-modern">
+      <a href="{{url_for('take_attendance')}}" class="quick-btn blue-bg"><span>✓</span>Take Attendance <b>→</b></a>
+      <a href="{{url_for('reports')}}" class="quick-btn green-bg"><span>▤</span>View Reports <b>→</b></a>
+      {% if session.get('role')=='admin' %}<a href="{{url_for('students')}}" class="quick-btn purple-bg"><span>♙</span>Manage Students <b>→</b></a><a href="{{url_for('teachers')}}" class="quick-btn orange-bg"><span>♟</span>Manage Teachers <b>→</b></a>{% endif %}
+    </div>
+  </section>
+</div>
+
+<section class="panel low-panel">
+  <div class="panel-head"><div><div class="eyebrow">ATTENTION</div><h2>Low Attendance Students</h2></div><span class="threshold">Below {{ threshold }}%</span></div>
+  <div class="table-wrap"><table class="modern-table"><thead><tr><th>PRN</th><th>Name</th><th>Year</th><th>Course</th><th>Attendance</th></tr></thead><tbody>{% for s in low %}<tr><td>{{s.prn or '—'}}</td><td><strong>{{s.name}}</strong></td><td>{{s.year}}</td><td>{{s.course}}</td><td><span class="attendance-pill low-pill">{{s.pct}}%</span></td></tr>{% else %}<tr><td colspan="5" class="muted">No low-attendance students.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% if session.get('role')!='admin' %}<div class="info-box">Your attendance screen shows only subjects assigned to your teacher account.</div>{% endif %}
+{% endblock %}
