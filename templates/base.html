@@ -21,7 +21,7 @@
     </div>
     <nav class="side-nav">
       <div class="nav-section">MAIN MENU</div>
-      <a class="nav-item {% if request.endpoint in ['dashboard','student_dashboard','hod_dashboard'] %}active{% endif %}" href="{{ url_for('dashboard') }}"><i>⌂</i><span>Dashboard</span></a>
+      <a class="nav-item {% if request.endpoint in ['dashboard','student_dashboard'] %}active{% endif %}" href="{{ url_for('dashboard') }}"><i>⌂</i><span>Dashboard</span></a>
       {% if session.get('role')=='student' %}
         <div class="nav-section">MY ACADEMICS</div>
         <a class="nav-item {% if request.endpoint=='student_dashboard' %}active{% endif %}" href="{{ url_for('student_dashboard') }}"><i>✓</i><span>My Attendance</span></a>
@@ -34,18 +34,18 @@
         <a class="nav-item {% if request.endpoint=='attendance_history' %}active{% endif %}" href="{{ url_for('attendance_history') }}"><i>◴</i><span>Attendance History</span></a>
         <a class="nav-item {% if request.endpoint in ['qr_attendance','qr_scan'] %}active{% endif %}" href="{{ url_for('qr_attendance') }}"><i>▦</i><span>QR Attendance</span></a>
       {% endif %}
-      {% if session.get('role') in ['admin','teacher','hod'] %}
+      {% if session.get('role') in ['admin','teacher'] %}
         <a class="nav-item {% if request.endpoint in ['reports','student_report'] %}active{% endif %}" href="{{ url_for('reports') }}"><i>▤</i><span>Reports</span></a>
         <a class="nav-item {% if request.endpoint=='leaves' %}active{% endif %}" href="{{ url_for('leaves') }}"><i>✎</i><span>Leave Applications</span></a>
       {% endif %}
-      {% if session.get('role')=='hod' %}<a class="nav-item {% if request.endpoint=='hod_dashboard' %}active{% endif %}" href="{{ url_for('hod_dashboard') }}"><i>♟</i><span>HOD Panel</span></a>{% endif %}
+      
       {% if session.get('role')=='admin' %}
         <div class="nav-section">COLLEGE MANAGEMENT</div>
         <a class="nav-item {% if request.endpoint in ['students','add_student','edit_student','student_report'] %}active{% endif %}" href="{{ url_for('students') }}"><i>♙</i><span>Student Management</span></a>
         <a class="nav-item {% if request.endpoint=='student_promotion' %}active{% endif %}" href="{{ url_for('student_promotion') }}"><i>⇧</i><span>Promotion</span></a>
         <a class="nav-item {% if request.endpoint in ['teachers','approve_teacher','toggle_teacher','assign_subjects','delete_teacher'] %}active{% endif %}" href="{{ url_for('teachers') }}"><i>♟</i><span>Teacher Management</span></a>
         <a class="nav-item {% if request.endpoint in ['subjects','add_subject','edit_subject'] %}active{% endif %}" href="{{ url_for('subjects') }}"><i>▥</i><span>Subject Management</span></a>
-        <a class="nav-item {% if request.endpoint=='departments' %}active{% endif %}" href="{{ url_for('departments') }}"><i>⌂</i><span>Department Management</span></a>
+        
         <a class="nav-item {% if request.endpoint=='activity_log' %}active{% endif %}" href="{{ url_for('activity_log') }}"><i>☷</i><span>Activity Log</span></a>
         <a class="nav-item {% if request.endpoint=='backup_database' %}active{% endif %}" href="{{ url_for('backup_database') }}"><i>⇩</i><span>Backup & Restore</span></a>
         <a class="nav-item {% if request.endpoint=='settings' %}active{% endif %}" href="{{ url_for('settings') }}"><i>⚙</i><span>Admin Settings</span></a>
@@ -83,7 +83,7 @@
 <nav class="mobile-bottom-nav">
   <a href="{{ url_for('dashboard') }}"><span>⌂</span>Home</a>
   {% if session.get('role') in ['admin','teacher'] %}<a href="{{ url_for('take_attendance') }}"><span>✓</span>Attendance</a>{% else %}<a href="{{ url_for('student_dashboard') }}"><span>✓</span>Attendance</a>{% endif %}
-  {% if session.get('role') in ['admin','teacher','hod'] %}<a href="{{ url_for('reports') }}"><span>▤</span>Reports</a>{% else %}<a href="{{ url_for('student_dashboard') }}"><span>▤</span>Reports</a>{% endif %}
+  {% if session.get('role') in ['admin','teacher'] %}<a href="{{ url_for('reports') }}"><span>▤</span>Reports</a>{% else %}<a href="{{ url_for('student_dashboard') }}"><span>▤</span>Reports</a>{% endif %}
   <a href="{{ url_for('profile') }}"><span>●</span>Profile</a>
 </nav>
 {% else %}{% block login_content %}{% endblock %}{% endif %}
