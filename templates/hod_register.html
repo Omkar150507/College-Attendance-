@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block login_content %}
+<div class="hod-register-page">
+  <div class="hod-register-card">
+    <div class="hod-register-brand">
+      <img src="{{ url_for('static', filename=logo_file) }}" alt="College logo">
+      <div><strong>{{ college_name }}</strong><span>HOD Registration</span></div>
+    </div>
+    <div class="hod-register-head"><div class="hod-icon">♟</div><div><h1>HOD Registration</h1><p>Register a Head of Department account.</p></div></div>
+    {% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}{% endwith %}
+    <form method="post" class="hod-form">
+      <div><label>Full Name</label><input name="full_name" required placeholder="Enter HOD full name"></div>
+      <div><label>Department</label><select name="department_id" required><option value="">Select department</option>{% for d in departments %}<option value="{{d.id}}">{{d.code}} — {{d.name}}</option>{% endfor %}</select></div>
+      <div><label>Username</label><input name="username" required autocomplete="username" placeholder="Choose username"></div>
+      <div><label>Email</label><input type="email" name="email" required autocomplete="email" placeholder="Enter email"></div>
+      <div><label>Mobile Number</label><input name="mobile" required inputmode="tel" placeholder="Enter mobile number"></div>
+      <div><label>Security Question</label><select name="security_question" required><option value="">Select security question</option>{% for q in security_questions %}<option value="{{q}}">{{q}}</option>{% endfor %}</select></div>
+      <div class="full"><label>Security Answer</label><input name="security_answer" required placeholder="Enter answer"></div>
+      <div><label>Password</label><input type="password" name="password" required autocomplete="new-password" placeholder="Create password"></div>
+      <div><label>Confirm Password</label><input type="password" name="confirm_password" required autocomplete="new-password" placeholder="Confirm password"></div>
+      <button class="primary full" type="submit">Submit HOD Registration</button>
+    </form>
+    <p class="back-login"><a href="{{ url_for('login') }}">← Back to Login</a></p>
+    <div class="hod-note">For security, the HOD account remains pending until the Admin approves it.</div>
+  </div>
+</div>
+<style>
+.hod-register-page{min-height:100vh;background:linear-gradient(135deg,#eef6ff,#f8fbff);display:flex;justify-content:center;align-items:center;padding:24px;box-sizing:border-box}.hod-register-card{width:min(760px,100%);background:#fff;border:1px solid #e0e9f3;border-radius:20px;box-shadow:0 18px 50px rgba(18,55,90,.12);padding:28px}.hod-register-brand{display:flex;align-items:center;gap:12px;margin-bottom:24px}.hod-register-brand img{width:48px;height:48px;object-fit:contain}.hod-register-brand strong,.hod-register-brand span{display:block}.hod-register-brand strong{color:#0a4f8d}.hod-register-brand span{font-size:12px;color:#718096;margin-top:3px}.hod-register-head{display:flex;gap:13px;align-items:center;margin-bottom:22px}.hod-icon{width:50px;height:50px;border-radius:15px;background:#eaf4ff;display:grid;place-items:center;font-size:25px}.hod-register-head h1{margin:0;color:#17324d}.hod-register-head p{margin:5px 0 0;color:#718096}.hod-form{display:grid;grid-template-columns:1fr 1fr;gap:15px}.hod-form>div{display:flex;flex-direction:column;gap:6px}.hod-form label{font-weight:700;font-size:13px;color:#28445d}.hod-form input,.hod-form select{min-height:46px;border:1px solid #cfd9e5;border-radius:10px;padding:0 12px;font-size:14px;box-sizing:border-box}.hod-form .full{grid-column:1/-1}.hod-form button{min-height:46px}.back-login{text-align:center;margin:18px 0 8px}.hod-note{text-align:center;background:#f4f8fc;padding:11px;border-radius:10px;color:#667789;font-size:12px}@media(max-width:650px){.hod-register-page{padding:12px;align-items:flex-start}.hod-register-card{margin-top:18px;padding:19px;border-radius:16px}.hod-form{grid-template-columns:1fr}.hod-form .full{grid-column:auto}.hod-register-head h1{font-size:23px}}
+</style>
+{% endblock %}
