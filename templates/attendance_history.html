@@ -1,0 +1,42 @@
+{% extends "base.html" %}{% block content %}<div class="content-wrap">
+<div class="page-banner"><div class="page-banner-icon">◴</div><div class="page-banner-copy"><h1>Attendance History</h1><p>View previous attendance sessions and delete a complete wrong session when required.</p></div><a class="button primary" href="{{ url_for('take_attendance') }}">＋ Take Attendance</a></div>
+<div class="panel"><form method="get" class="filters"><div><label>Year</label><select name="year" onchange="filterSubjectsByYear(this); this.form.submit()"><option value="">All Years</option>{% for y in years %}<option value="{{y}}" {% if year==y %}selected{% endif %}>{{y}}</option>{% endfor %}</select></div><div><label>Subject</label><select name="subject_id"><option value="">All Subjects</option>{% for s in subjects %}<option value="{{s.id}}" data-year="{{s.year}}" {% if subject_id==s.id %}selected{% endif %}>{{s.code}} — {{s.name}}</option>{% endfor %}</select></div><div><label>From Date</label><input type="date" name="from_date" value="{{from_date}}"></div><div><label>To Date</label><input type="date" name="to_date" value="{{to_date}}"></div><div><button class="primary">Filter</button></div><div><a class="button" href="{{url_for('attendance_history')}}">Clear</a></div></form></div>
+<div class="panel"><div class="panel-head"><div><h2>Saved Attendance Sessions</h2><p class="muted">Delete removes all student marks for that subject/date/lecture.</p></div></div><div class="table-wrap"><table class="modern-table"><thead><tr><th>Date</th><th>Year</th><th>Subject</th><th>Lecture</th><th>Time</th><th>Total</th><th>Present</th><th>Absent</th><th>Action</th></tr></thead><tbody>{% for r in rows %}<tr><td><strong>{{r.attendance_date}}</strong></td><td><span class="status-badge neutral">{{r.year}}</span></td><td>{{r.code}} — {{r.subject_name}}</td><td>L{{r.lecture_no}}</td><td>{{r.lecture_time or '—'}}</td><td>{{r.total}}</td><td class="good-number">{{r.present}}</td><td class="bad-number">{{r.absent}}</td><td>{% if session.get('role')=='admin' %}<form method="post" action="{{url_for('delete_attendance_session')}}" onsubmit="return confirm('Delete complete attendance for {{r.attendance_date}}, {{r.code}}, Lecture {{r.lecture_no}}?')"><input type="hidden" name="attendance_date" value="{{r.attendance_date}}"><input type="hidden" name="subject_id" value="{{r.subject_id}}"><input type="hidden" name="lecture_no" value="{{r.lecture_no}}"><button class="small danger">Delete</button></form>{% else %}<span class="muted">Admin only</span>{% endif %}</td></tr>{% else %}<tr><td colspan="9" class="muted">No attendance sessions found.</td></tr>{% endfor %}</tbody></table></div></div></div>
+<script>
+function filterSubjectsByYear(yearSelect) {
+    const form = yearSelect.form;
+    const subjectSelect = form ? form.querySelector('select[name="subject_id"]') : null;
+    if (!subjectSelect) return;
+
+    const year = yearSelect.value;
+    let current = subjectSelect.value;
+    let currentStillValid = false;
+
+    Array.from(subjectSelect.options).forEach(function(option) {
+        if (!option.value) {
+            option.hidden = false;
+            return;
+        }
+
+        const optionYear = (option.dataset.year || '').trim();
+        const show = !year || optionYear === year;
+        option.hidden = !show;
+
+        if (show && option.value === current) {
+            currentStillValid = true;
+        }
+    });
+
+    if (!currentStillValid) {
+        subjectSelect.value = '';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('select[name="year"]').forEach(function (yearSelect) {
+        filterSubjectsByYear(yearSelect);
+    });
+});
+</script>
+
+{% endblock %}

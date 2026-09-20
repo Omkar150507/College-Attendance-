@@ -1,0 +1,43 @@
+{% extends "base.html" %}{% block content %}<div class="content-wrap">
+<div class="page-banner"><div class="page-banner-icon">▦</div><div class="page-banner-copy"><h1>QR Attendance</h1><p>Generate a temporary QR code for the selected lecture. It expires automatically.</p></div></div>
+<div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Create QR Session</h2><p class="muted">Students scan the QR while logged into their account.</p></div></div><form method="post" class="form-grid"><div><label>Year</label><select name="year" onchange="filterSubjectsByYear(this)">{% for y in years %}<option value="{{y}}" {% if request.form.get("year", request.args.get("year", ""))==y %}selected{% endif %}>{{y}}</option>{% endfor %}</select></div><div><label>Subject</label><select name="subject_id"><option value="">Select subject</option>{% for s in subjects %}<option value="{{s.id}}" data-year="{{s.year}}" {% if request.form.get("subject_id", request.args.get("subject_id", ""))|string == s.id|string %}selected{% endif %}>{{s.code}} — {{s.name}}</option>{% endfor %}</select></div><div><label>Date</label><input type="date" name="attendance_date" value="{{today}}" required></div><div><label>Lecture</label><select name="lecture_no"><option value="1">Lecture 1</option><option value="2">Lecture 2</option><option value="3">Lecture 3</option></select></div><div><label>Lecture Time</label><input type="time" name="lecture_time" required></div><div><button class="primary">▦ Generate QR</button></div></form></section>
+<section class="panel" style="text-align:center">{% if qr %}<span class="status-badge present">● QR Active</span><h2 style="color:#0b3974;margin:10px 0 4px">{{qr_session.code}} — {{qr_session.subject_name}}</h2><p class="muted">{{qr_session.year}} · Lecture {{qr_session.lecture_no}} · {{qr_session.lecture_time}}</p><div style="background:#fff;border:8px solid #eef8f3;border-radius:12px;display:inline-block;padding:8px"><img src="{{qr}}" alt="Attendance QR" style="width:min(290px,75vw);image-rendering:pixelated;display:block"></div><p class="muted">Share this QR with the students for the current lecture.</p><form method="post" action="{{url_for('close_qr',token=token)}}"><button class="danger">Close QR Session</button></form>{% else %}<div class="notice-item"><div class="notice-icon">▦</div><div style="text-align:left"><b>No active QR session</b><p>Choose the lecture details and generate a QR code.</p></div></div>{% endif %}</section></div>
+</div>
+<script>
+function filterSubjectsByYear(yearSelect) {
+    const form = yearSelect.form;
+    const subjectSelect = form ? form.querySelector('select[name="subject_id"]') : null;
+    if (!subjectSelect) return;
+
+    const year = yearSelect.value;
+    let current = subjectSelect.value;
+    let currentStillValid = false;
+
+    Array.from(subjectSelect.options).forEach(function(option) {
+        if (!option.value) {
+            option.hidden = false;
+            return;
+        }
+
+        const optionYear = (option.dataset.year || '').trim();
+        const show = !year || optionYear === year;
+        option.hidden = !show;
+
+        if (show && option.value === current) {
+            currentStillValid = true;
+        }
+    });
+
+    if (!currentStillValid) {
+        subjectSelect.value = '';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('select[name="year"]').forEach(function (yearSelect) {
+        filterSubjectsByYear(yearSelect);
+    });
+});
+</script>
+
+{% endblock %}
