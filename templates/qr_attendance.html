@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="content-wrap">
+<style>
+.qr-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:16px}.qr-filter{display:grid;grid-template-columns:1fr 1fr;gap:12px}.qr-filter .wide{grid-column:1/-1}.qr-preview{text-align:center}.qr-box{display:inline-block;padding:12px;border:8px solid #edf7ff;border-radius:14px;background:#fff;box-shadow:0 8px 24px rgba(20,70,110,.08)}.qr-box img{width:min(290px,70vw);display:block}.teacher-note{padding:10px 12px;border-radius:8px;background:#f5faff;border:1px solid #dceaf6;color:#58728a;font-size:9px;line-height:1.5}.qr-status{padding:8px 12px;border-radius:99px;background:#e8f8ef;color:#187746;display:inline-block;font-size:9px;font-weight:800}@media(max-width:850px){.qr-grid{grid-template-columns:1fr}}@media(max-width:520px){.qr-filter{grid-template-columns:1fr}.qr-filter .wide{grid-column:auto}}
+</style>
+<div class="page-banner"><div class="page-banner-icon">▦</div><div class="page-banner-copy"><h1>QR Attendance</h1><p>Generate a timetable-linked QR for lecture or batch-specific practical attendance.</p></div></div>
+<div class="qr-grid">
+<section class="panel">
+ <div class="panel-head"><div><h2>1. Select Class & Schedule</h2><p class="muted">Select Year, Session, Batch and Date first, then load the matching timetable slots.</p></div></div>
+ <form method="get" class="qr-filter">
+  <div><label>Year</label><select name="year"><option value="">Select year</option>{% for y in years %}<option value="{{y}}" {% if selected_year==y %}selected{% endif %}>{{y}}</option>{% endfor %}</select></div>
+  <div><label>Session</label><select name="session_type"><option value="Lecture" {% if session_type=='Lecture' %}selected{% endif %}>Lecture</option><option value="Practical" {% if session_type=='Practical' %}selected{% endif %}>Practical</option></select></div>
+  {% if session_type=='Practical' %}<div><label>Batch</label><select name="batch"><option value="">Select batch</option>{% for b in ['Batch A','Batch B','Batch C','Batch D'] %}<option value="{{b}}" {% if batch==b %}selected{% endif %}>{{b}}</option>{% endfor %}</select></div>{% endif %}
+  <div><label>Subject</label><select name="subject_id"><option value="">Select subject</option>{% for s in subjects %}<option value="{{s.id}}" {% if selected_subject==s.id %}selected{% endif %}>{{s.code}} — {{s.name}}</option>{% endfor %}</select></div>
+  <div><label>Date</label><input type="date" name="attendance_date" value="{{attendance_date}}"></div>
+  <div class="wide"><button class="primary" type="submit">Load Timetable Slots</button></div>
+ </form>
+</section>
+<section class="panel">
+ <div class="panel-head"><div><h2>2. Teacher Status & Generate</h2><p class="muted">Scheduled teacher and actual conducting teacher are stored with the QR session.</p></div></div>
+ <form method="post" class="qr-filter">
+  <input type="hidden" name="year" value="{{selected_year}}"><input type="hidden" name="session_type" value="{{session_type}}"><input type="hidden" name="batch" value="{{batch}}"><input type="hidden" name="subject_id" value="{{selected_subject or ''}}"><input type="hidden" name="attendance_date" value="{{attendance_date}}">
+  <div class="wide"><label>Scheduled Timetable</label><select name="timetable_id" id="qr-tt" onchange="fillTT(this)"><option value="">Select scheduled slot</option>{% for t in candidates %}<option value="{{t.id}}" data-start="{{t.start_time}}" data-end="{{t.end_time}}" data-teacher="{{t.teacher_name}}">{{t.start_time}} – {{t.end_time}} · {{t.teacher_name}}{% if t.room %} · {{t.room}}{% endif %}</option>{% endfor %}</select></div>
+  <div><label>Start Time</label><input id="qr-start" type="time" name="start_time" required></div><div><label>End Time</label><input id="qr-end" type="time" name="end_time" required></div>
+  <div class="wide"><label>Teacher Status</label><select name="teacher_status" id="teacher-status" onchange="toggleConducted(this)"><option>Scheduled teacher present</option><option>Scheduled teacher absent - substitute teacher</option><option>Another teacher conducted the session</option></select></div>
+  <div id="conducted-wrap" class="wide" style="display:none"><label>Actual / Conducted By</label><select name="conducted_by"><option value="">Select teacher</option>{% for t in teachers %}<option value="{{t.id}}">{{t.name}}</option>{% endfor %}</select></div>
+  <div class="wide"><button class="primary" type="submit">▦ Generate QR</button></div>
+ </form>
+ <p class="teacher-note" style="margin-top:12px">If the scheduled teacher is absent, select substitute/another teacher. The attendance record keeps both the scheduled teacher and the conducted-by teacher.</p>
+</section>
+</div>
+{% if qr %}
+<section class="panel qr-preview" style="margin-top:16px"><span class="qr-status">● QR Active</span><h2 style="color:#0b3974;margin:10px 0 4px">{{qr_session.code}} — {{qr_session.subject_name}}</h2><p class="muted">{{qr_session.year}} · {{qr_session.session_type}}{% if qr_session.batch %} · {{qr_session.batch}}{% endif %} · {{qr_session.start_time}} – {{qr_session.end_time}}</p><p class="muted"><b>Scheduled Teacher:</b> {{qr_session.scheduled_teacher_name or 'Not linked'}} &nbsp; | &nbsp; <b>Conducted By:</b> {{qr_session.conducted_teacher_name or 'Not linked'}}</p><div class="qr-box"><img src="{{qr}}" alt="Attendance QR"></div><p class="muted">Students can scan this QR while logged in.</p><form method="post" action="{{url_for('close_qr',token=token)}}"><button class="danger">Close QR Session</button></form></section>
+{% endif %}
+</div>
+<script>function fillTT(el){const o=el.options[el.selectedIndex];document.getElementById('qr-start').value=o?.dataset.start||'';document.getElementById('qr-end').value=o?.dataset.end||'';}function toggleConducted(el){document.getElementById('conducted-wrap').style.display=el.value==='Scheduled teacher present'?'none':'block';}</script>
+{% endblock %}
