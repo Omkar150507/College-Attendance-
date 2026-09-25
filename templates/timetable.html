@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="content-wrap timetable-page">
+<style>
+.tt-head{display:flex;align-items:flex-end;justify-content:space-between;gap:15px;margin-bottom:15px}.tt-head h1{margin:0;color:#0b3974;font-size:22px}.tt-head p{margin:5px 0 0;color:#72869a;font-size:10px}.tt-actions{display:flex;gap:8px;flex-wrap:wrap}.tt-actions a{padding:8px 11px;border:1px solid #d6e5f2;border-radius:7px;background:#fff;color:#17659e;font-size:9px;font-weight:800}.tt-actions a.active,.tt-actions a.primary{background:#0878ee;border-color:#0878ee;color:#fff}
+.tt-add{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:11px;align-items:end}.tt-add label,.tt-filter label{display:block;color:#456580;font-size:9px;font-weight:800;margin-bottom:6px}.tt-add input,.tt-add select,.tt-filter input,.tt-filter select{height:40px}.tt-add .wide{grid-column:span 2}.tt-note{margin-top:11px;padding:10px 12px;border:1px solid #dceaf5;background:#f8fbfe;border-radius:8px;color:#6c8194;font-size:8.5px;line-height:1.5}.tt-note b{color:#0b3974}
+.tt-filter{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:11px;align-items:end}.tt-filter .filter-submit{display:flex;gap:7px}.tt-filter .filter-submit>*{flex:1}.tt-legend{display:flex;gap:14px;flex-wrap:wrap;margin:12px 0 9px;color:#71869a;font-size:8px}.tt-dot{display:inline-block;width:9px;height:9px;border-radius:3px;background:#0878ee;margin-right:4px;vertical-align:-1px}.tt-dot.practical{background:#e08b18}
+.tt-wrap{overflow:auto;border:1px solid #bfd5e7;border-radius:10px;background:#fff}.tt-grid{width:100%;min-width:930px;border-collapse:collapse;table-layout:fixed}.tt-grid th{background:#0b477f;color:#fff;border:1px solid #6f99ba;padding:10px 6px;text-align:center;font-size:9px}.tt-grid th.time-col{width:116px}.tt-grid td{border:1px solid #c2d5e5;background:#fff;vertical-align:top;padding:6px;min-height:92px}.tt-time{text-align:center;color:#234b70;font-size:8px;line-height:1.45;padding-top:10px}.tt-time strong{font-size:9px}.tt-entry{border-left:4px solid #0878ee;background:#f5faff;border-radius:7px;padding:7px;margin:2px 0 5px;box-shadow:0 2px 7px rgba(15,65,110,.06);font-size:8px;line-height:1.35}.tt-entry.practical{border-left-color:#df8a18;background:#fff8ed}.tt-entry .year{font-size:7px;color:#8a9aaa;text-transform:uppercase;font-weight:800}.tt-entry .code{font-size:10px;color:#0b3974;font-weight:900;margin-top:2px}.tt-entry .name{color:#587188;margin-top:2px}.tt-entry .teacher{color:#315b7b;font-weight:800;margin-top:5px}.tt-entry .badge{display:inline-block;margin-top:5px;padding:3px 6px;border-radius:99px;background:#e5f2ff;color:#17669f;font-size:7px;font-weight:900}.tt-entry.practical .badge{background:#ffebc9;color:#986108}.tt-entry .room{font-size:7px;color:#7b8fa2;margin-top:4px}.tt-delete{margin-top:5px;border:1px solid #f0c8d0;background:#fff0f2;color:#c52d43;border-radius:5px;padding:4px 6px;font-size:7px;font-weight:800;cursor:pointer}.tt-empty{text-align:center;color:#a0afbb;padding:26px 5px;font-size:8px}
+.tt-bottom{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}.tt-bottom div{padding:11px;border:1px solid #deebf5;border-radius:8px;background:#f8fbfe}.tt-bottom b{display:block;color:#0b3974;font-size:9px}.tt-bottom span{display:block;color:#71869a;font-size:8px;margin-top:3px;line-height:1.4}
+@media(max-width:950px){.tt-add{grid-template-columns:repeat(3,1fr)}.tt-filter{grid-template-columns:repeat(2,1fr)}.tt-bottom{grid-template-columns:1fr 1fr}.tt-head{align-items:flex-start;flex-direction:column}}@media(max-width:560px){.tt-add,.tt-filter,.tt-bottom{grid-template-columns:1fr}.tt-add .wide{grid-column:auto}.tt-actions{width:100%}.tt-actions a{flex:1;text-align:center}}
+</style>
+
+<div class="tt-head">
+  <div><h1>{% if session.get('role')=='student' %}My Timetable{% elif session.get('role')=='teacher' %}My Teaching Timetable{% else %}College Timetable{% endif %}</h1><p>{% if view=='week' %}Monday to Saturday weekly view{% else %}{{selected_day}} day view{% endif %}{% if selected_year %} · {{selected_year}}{% endif %}</p></div>
+  <div class="tt-actions"><a class="{% if view=='day' %}active{% endif %}" href="{{url_for('timetable',year=selected_year,day=selected_day,view='day',session_type=session_type,batch=batch)}}">Day View</a><a class="{% if view=='week' %}active{% endif %}" href="{{url_for('timetable',year=selected_year,day=selected_day,view='week',session_type=session_type,batch=batch)}}">Week View</a><a class="primary" href="{{url_for('export_timetable_pdf',year=selected_year,day=selected_day,view=view,session_type=session_type,batch=batch)}}">Export PDF</a></div>
+</div>
+
+{% if session.get('role')=='admin' %}
+<section class="panel">
+ <div class="panel-head"><div><h2>Add Timetable Entry</h2><p class="muted">Create separate entries for each year and practical batch.</p></div></div>
+ <form method="post" class="tt-add">
+  <div><label>Year</label><select name="year" id="ttAddYear" required>{% for y in years %}<option value="{{y}}">{{y}}</option>{% endfor %}</select></div>
+  <div><label>Day</label><select name="day_of_week" required>{% for d in days %}<option>{{d}}</option>{% endfor %}</select></div>
+  <div><label>Start Time</label><input type="time" name="start_time" required></div>
+  <div><label>End Time</label><input type="time" name="end_time" required></div>
+  <div><label>Session</label><select name="session_type" id="ttAddSession"><option>Lecture</option><option>Practical</option></select></div>
+  <div id="ttAddBatch" style="display:none"><label>Practical Batch</label><select name="batch"><option value="">Select batch</option>{% for b in batch_options %}<option>{{b}}</option>{% endfor %}</select></div>
+  <div class="wide"><label>Subject</label><select name="subject_id" id="ttAddSubject" required><option value="">Select subject</option>{% for s in subjects %}<option value="{{s.id}}" data-year="{{s.year}}">{{s.code}} — {{s.name}}</option>{% endfor %}</select></div>
+  <div><label>Teacher</label><select name="teacher_id" required><option value="">Select teacher</option>{% for t in teachers %}<option value="{{t.id}}">{{t.name}}</option>{% endfor %}</select></div>
+  <div><label>Room / Lab</label><input name="room" placeholder="Optional"></div>
+  <div><button class="primary" type="submit">＋ Add Timetable</button></div>
+ </form>
+ <div class="tt-note"><b>Practical example:</b> 09:30–12:30 can be entered as one long practical slot for Batch A, B, C or D. Add separate entries when batches have different subjects or teachers.</div>
+</section>
+{% endif %}
+
+<section class="panel">
+ <div class="panel-head"><div><h2>Timetable View</h2><p class="muted">Year-wise subjects with teacher names and batch information.</p></div></div>
+ <form method="get" class="tt-filter">
+  {% if session.get('role') in ['admin','teacher'] %}<div><label>Year</label><select name="year"><option value="">All Years</option>{% for y in years %}<option value="{{y}}" {% if selected_year==y %}selected{% endif %}>{{y}}</option>{% endfor %}</select></div>{% endif %}
+  <div><label>Day</label><select name="day">{% for d in days %}<option value="{{d}}" {% if selected_day==d %}selected{% endif %}>{{d}}</option>{% endfor %}</select></div>
+  <div><label>Session</label><select name="session_type"><option value="" {% if not session_type %}selected{% endif %}>All Sessions</option><option value="Lecture" {% if session_type=='Lecture' %}selected{% endif %}>Lecture</option><option value="Practical" {% if session_type=='Practical' %}selected{% endif %}>Practical</option></select></div>
+  {% if session.get('role')!='student' %}<div><label>Batch</label><select name="batch"><option value="">All Batches</option>{% for b in batch_options %}<option value="{{b}}" {% if batch==b %}selected{% endif %}>{{b}}</option>{% endfor %}</select></div>{% endif %}
+  <div class="filter-submit"><button class="primary" type="submit">Apply</button><input type="hidden" name="view" value="{{view}}"></div>
+ </form>
+ <div class="tt-legend"><span><i class="tt-dot"></i> Lecture — all students of the selected year</span><span><i class="tt-dot practical"></i> Practical — selected batch only</span></div>
+
+ {% set day_list=[selected_day] if view=='day' else days %}
+ <div class="tt-wrap">
+  <table class="tt-grid">
+   <thead><tr><th class="time-col">DAY &amp; TIME</th>{% for d in day_list %}<th>{{d[:4].upper() if d=='Thursday' else d[:3].upper()}}</th>{% endfor %}</tr></thead>
+   <tbody>
+   {% for slot in slots %}
+    <tr><td><div class="tt-time"><strong>{{slot[0]}}</strong><br>to<br><strong>{{slot[1]}}</strong></div></td>
+    {% for d in day_list %}<td>
+      {% set entries=rows|selectattr('day_of_week','equalto',d)|selectattr('start_time','equalto',slot[0])|selectattr('end_time','equalto',slot[1])|list %}
+      {% for r in entries %}
+      <div class="tt-entry {% if r.session_type=='Practical' %}practical{% endif %}">
+       <div class="year">{{r.year}}</div><div class="code">{{r.subject_code or 'Subject'}}</div><div class="name">{{r.subject_name or '—'}}</div><div class="teacher">Teacher: {{r.teacher_name or 'Not assigned'}}</div>
+       <span class="badge">{% if r.session_type=='Practical' %}{{r.batch}}{% else %}Lecture · All Students{% endif %}</span>
+       {% if r.room %}<div class="room">Room / Lab: {{r.room}}</div>{% endif %}
+       {% if session.get('role')=='admin' %}<form method="post" action="{{url_for('delete_timetable',timetable_id=r.id)}}" onsubmit="return confirm('Delete this timetable entry?')"><button class="tt-delete" type="submit">Delete Entry</button></form>{% endif %}
+      </div>
+      {% else %}<div class="tt-empty">—</div>{% endfor %}
+    </td>{% endfor %}</tr>
+   {% else %}<tr><td colspan="{{1+(1 if view=='day' else 6)}}" class="tt-empty">No timetable entries found for the selected filters.</td></tr>{% endfor %}
+   </tbody>
+  </table>
+ </div>
+ <div class="tt-bottom"><div><b>Year-wise</b><span>Select a year to see only that B.Pharm year's timetable.</span></div><div><b>Teacher-wise</b><span>Teacher login automatically sees only their assigned timetable entries.</span></div><div><b>Student-wise</b><span>Student login sees their year and only their practical batch.</span></div></div>
+</section>
+</div>
+<script>
+(function(){
+ const sess=document.getElementById('ttAddSession'),batch=document.getElementById('ttAddBatch'),yr=document.getElementById('ttAddYear'),sub=document.getElementById('ttAddSubject');
+ function syncBatch(){if(sess&&batch)batch.style.display=sess.value==='Practical'?'block':'none';}
+ function syncSubjects(){if(!yr||!sub)return;const y=yr.value;Array.from(sub.options).forEach(o=>{if(!o.value){o.hidden=false;return;}o.hidden=!!y&&o.dataset.year!==y;});if(sub.selectedOptions[0]&&sub.selectedOptions[0].hidden)sub.value='';}
+ sess&&sess.addEventListener('change',syncBatch);yr&&yr.addEventListener('change',syncSubjects);syncBatch();syncSubjects();
+})();
+</script>
+{% endblock %}
