@@ -21,9 +21,10 @@
   {% endif %}
   <section class="panel">
     <div class="panel-head"><div><h2>{% if session.get('role')=='student' %}My Timetable{% elif session.get('role')=='teacher' %}My Teaching Timetable{% else %}Timetable{% endif %}</h2><p class="muted">{{ selected_day }}{% if selected_year %} · {{ selected_year }}{% endif %}</p></div></div>
-    <form method="get" class="filters">
+    <form method="get" class="filters" id="tt-filter-form">
       {% if session.get('role') in ['admin','hod'] %}<div><label>Year</label><select name="year" onchange="this.form.submit()"><option value="">All Years</option>{% for y in years %}<option value="{{y}}" {% if selected_year==y %}selected{% endif %}>{{y}}</option>{% endfor %}</select></div>{% endif %}
       <div><label>Day</label><select name="day" onchange="this.form.submit()">{% for d in days %}<option value="{{d}}" {% if selected_day==d %}selected{% endif %}>{{d}}</option>{% endfor %}</select></div>
+      <div style="display:flex;align-items:end"><button type="button" class="primary" onclick="exportTimetablePDF()">▣ Export Timetable PDF</button></div>
     </form>
     {% if rows %}
     <div class="table-wrap"><table><thead><tr><th>Year</th><th>Time</th><th>Session</th><th>Batch</th><th>Subject</th><th>Teacher</th><th>Room</th>{% if session.get('role')=='admin' %}<th>Action</th>{% endif %}</tr></thead><tbody>
@@ -32,5 +33,5 @@
     {% else %}<div class="notice-item"><div class="notice-icon">i</div><div><b>No timetable entries</b><p>No timetable has been created for the selected day/filter.</p></div></div>{% endif %}
   </section>
 </div>
-<script>function toggleBatch(id,wrap){document.getElementById(wrap).style.display=document.getElementById(id).value==='Practical'?'block':'none';} toggleBatch('tt-session','tt-batch-wrap');</script>
+<script>function exportTimetablePDF(){const f=document.getElementById('tt-filter-form');const p=new URLSearchParams(new FormData(f));window.location.href='{{url_for('export_timetable_pdf')}}?'+p.toString();} function toggleBatch(id,wrap){document.getElementById(wrap).style.display=document.getElementById(id).value==='Practical'?'block':'none';} toggleBatch('tt-session','tt-batch-wrap');</script>
 {% endblock %}
