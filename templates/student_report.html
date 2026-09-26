@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}My Report - {{ college_name }}{% endblock %}
+{% block content %}
+<div class="content-wrap">
+    <div class="page-banner">
+        <div class="page-banner-icon">▤</div>
+        <div class="page-banner-copy">
+            <h1>My Attendance Report</h1>
+            <p>View your complete subject-wise attendance and download your report as PDF.</p>
+        </div>
+        <div class="banner-date">
+            <strong>{{ student.year }}</strong>
+            <span>PRN {{ student.prn or '—' }}</span>
+        </div>
+    </div>
+
+    {% if summary is defined %}
+    <div class="stat-grid">
+        <div class="stat-card blue">
+            <div class="stat-icon">▣</div>
+            <div><span>Total Classes</span><strong>{{ total }}</strong><small>Attendance marks</small></div>
+        </div>
+        <div class="stat-card green">
+            <div class="stat-icon">✓</div>
+            <div><span>Present</span><strong>{{ present }}</strong><small>Present marks</small></div>
+        </div>
+        <div class="stat-card orange">
+            <div class="stat-icon">×</div>
+            <div><span>Absent</span><strong>{{ absent }}</strong><small>Absent marks</small></div>
+        </div>
+        <div class="stat-card purple">
+            <div class="stat-icon">%</div>
+            <div><span>Attendance</span><strong>{{ overall }}%</strong><small>Overall</small></div>
+        </div>
+    </div>
+    {% endif %}
+
+    <section class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>Student Details</h2>
+                <p class="muted">Your registered academic information.</p>
+            </div>
+            {% if summary is defined %}<a class="button primary" href="{{ url_for('student_my_report_pdf') }}">↓ Export PDF</a>{% endif %}
+        </div>
+        <div class="profile-grid">
+            <div class="profile-item"><span>Name</span><b>{{ student.name }}</b></div>
+            <div class="profile-item"><span>PRN</span><b>{{ student.prn or '—' }}</b></div>
+            <div class="profile-item"><span>Course</span><b>{{ student.course or 'B.Pharm' }}</b></div>
+            <div class="profile-item"><span>Year</span><b>{{ student.year }}</b></div>
+        </div>
+    </section>
+
+    <section class="panel" style="margin-top:16px">
+        <div class="panel-head">
+            <div>
+                <h2>Subject-wise Attendance</h2>
+                <p class="muted">Attendance summary for your current academic year.</p>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="modern-table">
+                <thead><tr><th>Subject</th><th>Total</th><th>Present</th><th>Absent</th><th>Attendance %</th></tr></thead>
+                <tbody>
+                {% set report_rows = summary if summary is defined else rows %}
+                {% for r in report_rows %}
+                    <tr>
+                        <td><strong>{{ r.code }} — {{ r.subject_name }}</strong></td>
+                        <td>{{ r.total }}</td>
+                        <td>{{ r.present }}</td>
+                        <td>{{ r.absent }}</td>
+                        <td><strong>{{ r.pct }}%</strong></td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="5" class="muted">No subject attendance found.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    {% if history is defined %}
+    <section class="panel" style="margin-top:16px">
+        <div class="panel-head">
+            <div>
+                <h2>Attendance History</h2>
+                <p class="muted">All attendance marks recorded for your account.</p>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="modern-table">
+                <thead><tr><th>Date</th><th>Subject</th><th>Lecture</th><th>Time</th><th>Status</th></tr></thead>
+                <tbody>
+                {% for r in history %}
+                    <tr>
+                        <td>{{ r.attendance_date }}</td>
+                        <td><strong>{{ r.code }} — {{ r.subject_name }}</strong></td>
+                        <td>L{{ r.lecture_no }}</td>
+                        <td>{{ r.lecture_time or '—' }}</td>
+                        <td><span class="status-badge {% if r.status == 'Present' %}present{% else %}absent{% endif %}">{{ r.status }}</span></td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="5" class="muted">No attendance history found.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}
