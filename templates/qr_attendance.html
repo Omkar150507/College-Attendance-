@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="content-wrap qr-page">
+<style>
+.qr-page .page-banner{margin-bottom:16px}
+.qr-page .qr-panel{margin-bottom:16px}
+.qr-page .qr-section-title{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.qr-page .qr-number{width:30px;height:30px;border-radius:9px;background:#0878ee;color:#fff;display:grid;place-items:center;font-weight:800;font-size:13px;flex:none}
+.qr-page .qr-section-title h2{margin:0;font-size:16px;color:#0b3974}
+.qr-page .qr-section-title p{margin:3px 0 0;font-size:9px;color:#71869a}
+.qr-page .qr-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.qr-page .qr-fields .full{grid-column:1/-1}
+.qr-page .qr-fields label{display:block;font-size:9px;font-weight:800;color:#456580;margin-bottom:5px}
+.qr-page .qr-fields select,.qr-page .qr-fields input{width:100%;height:40px;box-sizing:border-box}
+.qr-page .qr-actions{display:flex;gap:10px;margin-top:14px}
+.qr-page .qr-actions .primary{min-width:190px}
+.qr-page .qr-note{margin-top:12px;padding:11px 12px;border:1px solid #dceaf6;background:#f7fbff;border-radius:8px;color:#5d7489;font-size:9px;line-height:1.55}
+.qr-page .teacher-box{border-top:1px solid #e3edf5;margin-top:16px;padding-top:16px}
+.qr-page .teacher-info{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.qr-page .info-card{padding:11px 12px;border:1px solid #deebf5;border-radius:9px;background:#f8fbfe}
+.qr-page .info-card small{display:block;color:#71869a;font-size:8px;text-transform:uppercase;font-weight:800}
+.qr-page .info-card strong{display:block;color:#0b3974;font-size:11px;margin-top:4px}
+.qr-page .qr-result{text-align:center}
+.qr-page .qr-result-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}
+.qr-page .qr-result-meta div{padding:10px;border:1px solid #deebf5;border-radius:8px;background:#f8fbfe}
+.qr-page .qr-result-meta b{display:block;color:#6a8096;font-size:7px;text-transform:uppercase}
+.qr-page .qr-result-meta span{display:block;color:#0b3974;font-size:9px;font-weight:800;margin-top:4px}
+.qr-page .qr-box{display:inline-block;padding:12px;border:7px solid #edf7ff;border-radius:14px;background:#fff;box-shadow:0 8px 24px rgba(20,70,110,.08)}
+.qr-page .qr-box img{width:min(300px,72vw);display:block}
+.qr-page .empty-box{padding:18px;border:1px dashed #cbddeb;border-radius:9px;background:#fbfdff;color:#71869a;font-size:9px}
+@media(max-width:850px){.qr-page .qr-fields{grid-template-columns:1fr 1fr}.qr-page .qr-result-meta{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.qr-page .qr-fields,.qr-page .teacher-info{grid-template-columns:1fr}.qr-page .qr-fields .full{grid-column:auto}.qr-page .qr-actions{flex-direction:column}.qr-page .qr-actions button{width:100%}}
+</style>
+
+<div class="page-banner">
+  <div class="page-banner-icon">▦</div>
+  <div class="page-banner-copy"><h1>QR Attendance</h1><p>Create attendance QR in the same simple flow as Take Attendance.</p></div>
+</div>
+
+<div class="panel qr-panel">
+  <div class="qr-section-title"><div class="qr-number">1</div><div><h2>Select Attendance Details</h2><p>Year → Session → Batch (Practical) → Subject → Date → Time</p></div></div>
+  <form method="get">
+    <div class="qr-fields">
+      <div><label>Select Year</label><select name="year" onchange="this.form.submit()"><option value="">Select year</option>{% for y in years %}<option value="{{y}}" {% if selected_year==y %}selected{% endif %}>{{y}}</option>{% endfor %}</select></div>
+      <div><label>Session</label><select name="session_type" onchange="this.form.submit()"><option value="Lecture" {% if session_type=='Lecture' %}selected{% endif %}>Lecture</option><option value="Practical" {% if session_type=='Practical' %}selected{% endif %}>Practical</option></select></div>
+      {% if session_type=='Practical' %}<div><label>Batch</label><select name="batch" onchange="this.form.submit()"><option value="">Select batch</option>{% for b in ['Batch A','Batch B','Batch C','Batch D'] %}<option value="{{b}}" {% if batch==b %}selected{% endif %}>{{b}}</option>{% endfor %}</select></div>{% endif %}
+      <div><label>Select Subject</label><select name="subject_id" onchange="this.form.submit()"><option value="">Select subject</option>{% for s in subjects %}<option value="{{s.id}}" {% if selected_subject==s.id %}selected{% endif %}>{{s.code}} — {{s.name}}</option>{% endfor %}</select></div>
+      <div><label>Date</label><input type="date" name="attendance_date" value="{{attendance_date}}"></div>
+      <div><label>Time From</label><input type="time" name="start_time" value="{{start_time}}"></div>
+      <div><label>Time To</label><input type="time" name="end_time" value="{{end_time}}"></div>
+    </div>
+    <div class="qr-actions"><button class="primary" type="submit">Continue to Teacher Status</button></div>
+  </form>
+  <div class="qr-note"><b>Timetable:</b> If a matching timetable slot exists, its scheduled teacher is automatically used. A missing teacher assignment will not prevent QR creation.</div>
+</div>
+
+{% if selected_subject and start_time and end_time %}
+<div class="panel qr-panel">
+  <div class="qr-section-title"><div class="qr-number">2</div><div><h2>Teacher Status & Create QR</h2><p>Record the scheduled teacher and the teacher who actually conducted the session.</p></div></div>
+  <div class="teacher-info">
+    <div class="info-card"><small>Scheduled Teacher</small><strong>{{ scheduled_teacher.teacher_name if scheduled_teacher and scheduled_teacher.teacher_name else 'Not assigned in timetable' }}</strong></div>
+    <div class="info-card"><small>Session</small><strong>{{selected_year}} · {{session_type}}{% if batch %} · {{batch}}{% endif %}</strong></div>
+  </div>
+  <form method="post">
+    <input type="hidden" name="year" value="{{selected_year}}"><input type="hidden" name="session_type" value="{{session_type}}"><input type="hidden" name="batch" value="{{batch}}"><input type="hidden" name="subject_id" value="{{selected_subject}}"><input type="hidden" name="attendance_date" value="{{attendance_date}}"><input type="hidden" name="start_time" value="{{start_time}}"><input type="hidden" name="end_time" value="{{end_time}}">
+    <div class="qr-fields">
+      <div><label>Teacher Status</label><select name="teacher_status" id="teacher-status" onchange="toggleConducted(this)"><option value="Scheduled teacher present" {% if teacher_status=='Scheduled teacher present' %}selected{% endif %}>Teacher Present</option><option value="Scheduled teacher absent - substitute teacher" {% if teacher_status=='Scheduled teacher absent - substitute teacher' %}selected{% endif %}>Teacher Absent</option><option value="Another teacher conducted the session" {% if teacher_status=='Another teacher conducted the session' %}selected{% endif %}>Another Teacher Conducted</option></select></div>
+      <div id="conducted-wrap" style="{% if teacher_status=='Scheduled teacher present' %}display:none{% endif %}"><label>Actual / Conducted By Teacher</label><select name="conducted_by"><option value="">Select teacher</option>{% for t in teachers %}<option value="{{t.id}}" {% if conducted_by==t.id %}selected{% endif %}>{{t.name}}</option>{% endfor %}</select></div>
+    </div>
+    <div class="qr-actions"><button class="primary" type="submit">▦ Create QR</button></div>
+  </form>
+</div>
+{% endif %}
+
+{% if qr %}
+<div class="panel qr-result">
+  <span class="status-badge neutral">● QR Active · 10 minutes</span>
+  <h2 style="color:#0b3974;margin:10px 0 3px">{{qr_session.code}} — {{qr_session.subject_name}}</h2>
+  <p class="muted" style="margin:0">{{qr_session.year}} · {{qr_session.session_type}}{% if qr_session.batch %} · {{qr_session.batch}}{% endif %}</p>
+  <div class="qr-result-meta"><div><b>Time</b><span>{{qr_session.start_time}} – {{qr_session.end_time}}</span></div><div><b>Scheduled Teacher</b><span>{{qr_session.scheduled_teacher_name or 'Not assigned'}}</span></div><div><b>Conducted By</b><span>{{qr_session.conducted_teacher_name or 'Not assigned'}}</span></div><div><b>Status</b><span>{{qr_session.teacher_status}}</span></div></div>
+  <div class="qr-box"><img src="{{qr}}" alt="Attendance QR"></div>
+  <p class="muted">Students can scan this QR while logged in.</p>
+  <form method="post" action="{{url_for('close_qr',token=token)}}"><button class="danger" type="submit">Close QR Session</button></form>
+</div>
+{% endif %}
+</div>
+<script>
+function toggleConducted(el){const w=document.getElementById('conducted-wrap');if(w)w.style.display=el.value==='Scheduled teacher present'?'none':'block';}
+</script>
+{% endblock %}
