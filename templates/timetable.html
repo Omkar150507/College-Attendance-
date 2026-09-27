@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="content-wrap timetable-page">
+<style>
+.timetable-page{max-width:1500px;margin:0 auto;color:#173f63}
+.tt-card{background:#fff;border:1px solid #cfe0ee;border-radius:14px;box-shadow:0 4px 16px rgba(20,75,110,.06);margin-bottom:18px;overflow:hidden}
+.tt-head{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 22px;border-bottom:1px solid #dbe8f1;background:#fff}
+.tt-head h1{margin:0;color:#12477b;font-size:25px}.tt-head p{margin:4px 0 0;color:#7890a2;font-size:12px}.tt-actions{display:flex;gap:8px;flex-wrap:wrap}.tt-btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 13px;border:1px solid #c9dce9;border-radius:8px;background:#fff;color:#41627a;text-decoration:none;font-size:11px;font-weight:700}.tt-btn.active,.tt-btn.primary{background:#087fe5;color:#fff;border-color:#087fe5}
+.tt-form{padding:18px 22px}.tt-form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px}.tt-field label,.tt-filter-field label{display:block;font-size:11px;font-weight:700;color:#536f84;margin-bottom:5px}.tt-field select,.tt-field input,.tt-filter-field select{width:100%;height:39px;border:1px solid #cbdde9;border-radius:8px;background:#fff;padding:0 10px;color:#294c65;box-sizing:border-box}.tt-field.full{grid-column:span 2}.tt-add-actions{display:flex;align-items:end}.tt-primary,.tt-filter-field .apply{height:39px;border:0;border-radius:8px;background:#087fe5;color:#fff;padding:0 16px;font-weight:700;cursor:pointer}.tt-note{margin-top:12px;padding:10px 12px;border:1px solid #dceaf4;border-radius:8px;background:#f7fbfe;color:#6d8292;font-size:10px}
+/* College timetable sheet */
+.tt-sheet{margin:18px;background:#fff;border:3px solid #237bc0;border-radius:12px;padding:18px 18px 16px;box-sizing:border-box}
+.tt-sheet-header{display:grid;grid-template-columns:120px 1fr 185px;align-items:center;gap:10px;padding-bottom:14px;border-bottom:3px solid #d6e5ef}
+.tt-logo{width:105px;height:105px;object-fit:contain;justify-self:center}.tt-college{text-align:center}.tt-college h2{margin:0;color:#07509a;font-size:31px;line-height:1.08;font-weight:800}.tt-college .tagline{margin:8px 0 3px;color:#0b4f8e;font-size:17px;font-weight:700}.tt-college .affil{margin:0;color:#365f82;font-size:14px}.tt-codes{margin-top:12px;display:flex;justify-content:center;gap:0;background:#edf6fd;border-radius:10px;overflow:hidden}.tt-codes span{padding:9px 18px;color:#315a7b;font-size:12px;font-weight:800;border-right:1px solid #bcd5e7}.tt-codes span:last-child{border-right:0}.tt-year-box{justify-self:end;background:#07509a;color:#fff;border-radius:17px;padding:17px 18px;width:150px;box-sizing:border-box}.tt-year-box .course{font-size:15px;font-weight:700}.tt-year-box .year{font-size:17px;margin-top:5px}.tt-year-box .title{font-size:22px;font-weight:800;margin-top:3px}
+.tt-meta-strip{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:14px 4px 12px;font-size:15px;font-weight:800;color:#183f61}.tt-meta-strip span:nth-child(2){text-align:center}.tt-meta-strip span:nth-child(3){text-align:right}
+.tt-calendar-wrap{overflow-x:auto}.tt-calendar{width:100%;min-width:980px;border-collapse:separate;border-spacing:0;table-layout:fixed;border:1px solid #bcd7e8;border-radius:9px;overflow:hidden}.tt-calendar th{background:#0876c9;color:#fff;padding:11px 7px;font-size:13px;border-right:1px solid #d6ebf8}.tt-calendar th.time{width:105px}.tt-calendar td{border-right:1px solid #c9deeb;border-bottom:1px solid #c9deeb;background:#fff;padding:5px;vertical-align:middle;height:77px}.tt-calendar tr:last-child td{border-bottom:0}.tt-calendar th:last-child,.tt-calendar td:last-child{border-right:0}.tt-time{font-weight:800;text-align:center;color:#244f73;font-size:11px;line-height:1.45}.tt-entry{height:100%;min-height:65px;box-sizing:border-box;border-radius:8px;padding:9px 10px;background:#e9f6ff;border:1px solid #c6e4f6;color:#214e70;display:flex;flex-direction:column;justify-content:center}.tt-entry.practical{background:#fff4df;border-color:#f2d39a}.tt-code{font-size:12px;font-weight:800;line-height:1.2}.tt-name{font-size:10px;margin-top:4px;line-height:1.3}.tt-teacher{font-size:9px;margin-top:5px;font-weight:700}.tt-badge{display:inline-block;margin-top:5px;padding:3px 7px;border-radius:15px;background:#f0a42b;color:#fff;font-size:8px;font-weight:800;align-self:flex-start}.tt-entry.lecture:nth-child(2n){background:#edf9e9}.tt-empty{text-align:center;color:#9aaab5;font-size:10px}.tt-delete{position:absolute;right:4px;top:4px;width:22px;height:22px;border:1px solid #efc1c8;border-radius:5px;background:#fff7f8;color:#b52239;cursor:pointer}.tt-entry{position:relative}
+.tt-subject-head{display:flex;align-items:center;gap:10px;margin:16px 4px 8px;color:#174d78;font-size:19px;font-weight:800}.tt-subject-head .icon{font-size:21px}.tt-subjects{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #cbdde9;border-radius:7px;overflow:hidden}.tt-subjects th{background:#eaf4fb;color:#164d78;font-size:11px;text-align:left;padding:10px;border-right:1px solid #d1e1ec}.tt-subjects td{padding:8px 10px;border-top:1px solid #d6e4ed;border-right:1px solid #d6e4ed;color:#31556f;font-size:11px}.tt-subjects th:last-child,.tt-subjects td:last-child{border-right:0}.tt-footnote{margin-top:10px;color:#71889a;font-size:9px}
+@media(max-width:900px){.tt-sheet-header{grid-template-columns:80px 1fr}.tt-year-box{display:none}.tt-logo{width:75px;height:75px}.tt-college h2{font-size:22px}.tt-codes span{padding:7px 9px;font-size:9px}.tt-meta-strip{font-size:11px}.tt-form-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.tt-field.full{grid-column:auto}}
+@media(max-width:600px){.tt-sheet{margin:10px;padding:10px}.tt-sheet-header{grid-template-columns:1fr}.tt-logo{margin:auto}.tt-college h2{font-size:20px}.tt-codes{flex-wrap:wrap}.tt-codes span{flex:1;text-align:center}.tt-meta-strip{grid-template-columns:1fr}.tt-meta-strip span,.tt-meta-strip span:nth-child(2),.tt-meta-strip span:nth-child(3){text-align:left}.tt-form-grid{grid-template-columns:1fr}.tt-actions{width:100%}.tt-btn{flex:1}}
+
+/* Reference-sheet timetable refinements */
+.tt-sheet{border:2px solid #237bc0;border-radius:8px;padding:14px 14px 12px}
+.tt-sheet-header{grid-template-columns:100px 1fr 165px;padding-bottom:11px;border-bottom:2px solid #cfdfe9}
+.tt-logo{width:82px;height:82px}.tt-college h2{font-size:28px}.tt-college .tagline{font-size:14px;margin:5px 0 2px}.tt-college .affil{font-size:12px}.tt-codes{margin-top:9px;border-radius:8px}.tt-codes span{padding:7px 14px;font-size:10px}
+.tt-year-box{padding:13px 15px;width:145px;border-radius:13px}.tt-year-box .course{font-size:13px}.tt-year-box .year{font-size:15px}.tt-year-box .title{font-size:19px}
+.tt-meta-strip{padding:10px 3px 9px;font-size:12px}
+.tt-calendar th{padding:9px 5px;font-size:11px}.tt-calendar th.time{width:100px}.tt-calendar td{padding:4px;min-height:54px;height:54px}
+.tt-time{font-size:10px}.tt-entry{min-height:48px;padding:7px 8px;border-radius:6px;text-align:center}.tt-code{font-size:11px}.tt-name{font-size:9px;margin-top:2px}.tt-teacher{display:none}.tt-badge{margin-top:4px;padding:3px 8px;font-size:8px;align-self:center}.tt-entry.lecture{background:#e9f6ff;border-color:#c6e4f6}.tt-entry.practical{background:#fff4df;border-color:#f0cf91}
+.tt-lunch td{background:#f5f8fa!important;color:#31536d;font-weight:800;text-align:center;font-size:11px;padding:6px!important}
+.tt-subject-head{margin-top:14px;font-size:16px}.tt-subjects th{font-size:10px;padding:8px}.tt-subjects td{font-size:10px;padding:7px 9px}.tt-footnote{display:none}
+</style>
+
+{% if session.get('role')=='admin' %}
+<div class="tt-card">
+  <div class="tt-head"><div><h1>Timetable Management</h1><p>Add lectures and practical sessions without changing the timetable sheet format.</p></div></div>
+  <form method="post" class="tt-form"><div class="tt-form-grid">
+    <div class="tt-field"><label>Academic Year</label><select name="year" id="addYear" required>{% for y in years %}<option value="{{y}}">{{y}}</option>{% endfor %}</select></div>
+    <div class="tt-field"><label>Day</label><select name="day_of_week" required>{% for d in days %}<option>{{d}}</option>{% endfor %}</select></div>
+    <div class="tt-field"><label>Start Time</label><input type="time" name="start_time" required></div>
+    <div class="tt-field"><label>End Time</label><input type="time" name="end_time" required></div>
+    <div class="tt-field"><label>Session</label><select name="session_type" id="addSession"><option>Lecture</option><option>Practical</option></select></div>
+    <div class="tt-field" id="addBatchWrap" style="display:none"><label>Practical Batch</label><select name="batch"><option value="">Select batch</option>{% for b in batch_options %}<option>{{b}}</option>{% endfor %}</select></div>
+    <div class="tt-field full"><label>Subject</label><select name="subject_id" id="addSubject" required><option value="">Select subject</option>{% for s in subjects %}<option value="{{s.id}}" data-year="{{s.year}}">{{s.code}} — {{s.name}}</option>{% endfor %}</select></div>
+    <div class="tt-field"><label>Teacher</label><select name="teacher_id" required><option value="">Select teacher</option>{% for t in teachers %}<option value="{{t.id}}">{{t.name}}</option>{% endfor %}</select></div>
+    <div class="tt-field"><label>Room / Lab</label><input name="room" placeholder="Optional"></div>
+    <div class="tt-add-actions"><button class="tt-primary" type="submit">＋ Add Timetable Entry</button></div>
+  </div><div class="tt-note"><b>Practical:</b> Select Practical + Batch A/B/C/D. A long practical such as 09:30–12:30 will automatically span the corresponding timetable slots.</div></form>
+</div>
+{% endif %}
+
+<div class="tt-card">
+  <div class="tt-head"><div><h1>{% if session.get('role')=='student' %}My Timetable{% elif session.get('role')=='teacher' %}My Teaching Timetable{% else %}College Timetable{% endif %}</h1><p>College timetable in the requested printable sheet format.</p></div><div class="tt-actions"><a class="tt-btn {% if view=='day' %}active{% endif %}" href="{{url_for('timetable',year=selected_year,day=selected_day,view='day',session_type=session_type,batch=batch)}}">Day View</a><a class="tt-btn {% if view=='week' %}active{% endif %}" href="{{url_for('timetable',year=selected_year,day=selected_day,view='week',session_type=session_type,batch=batch)}}">Week View</a><a class="tt-btn primary" href="{{url_for('export_timetable_pdf',year=selected_year,day=selected_day,view=view,session_type=session_type,batch=batch)}}">Export PDF</a></div></div>
+
+  <form method="get" class="tt-form" style="padding-bottom:8px"><div class="tt-form-grid">
+    {% if session.get('role') in ['admin','teacher'] %}<div class="tt-field"><label>Year</label><select name="year"><option value="">All Years</option>{% for y in years %}<option value="{{y}}" {% if selected_year==y %}selected{% endif %}>{{y}}</option>{% endfor %}</select></div>{% endif %}
+    <div class="tt-field"><label>Day</label><select name="day">{% for d in days %}<option value="{{d}}" {% if selected_day==d %}selected{% endif %}>{{d}}</option>{% endfor %}</select></div>
+    <div class="tt-field"><label>Session</label><select name="session_type"><option value="">All Sessions</option><option value="Lecture" {% if session_type=='Lecture' %}selected{% endif %}>Lecture</option><option value="Practical" {% if session_type=='Practical' %}selected{% endif %}>Practical</option></select></div>
+    {% if session.get('role')!='student' %}<div class="tt-field"><label>Batch</label><select name="batch"><option value="">All Batches</option>{% for b in batch_options %}<option value="{{b}}" {% if batch==b %}selected{% endif %}>{{b}}</option>{% endfor %}</select></div>{% endif %}
+    <input type="hidden" name="view" value="{{view}}"><div class="tt-add-actions"><button class="tt-primary" type="submit">Apply Filters</button></div>
+  </div></form>
+
+  <div class="tt-sheet">
+    <div class="tt-sheet-header">
+      <img class="tt-logo" src="{{url_for('static',filename=logo_file)}}" alt="College Logo">
+      <div class="tt-college"><h2>{{college_name}}</h2><div class="tagline">{{college_tagline}}</div><div class="affil">Affiliated by DBATU, Lonere</div><div class="tt-codes"><span>DTE Code : 6492</span><span>MSBTE Code : 1985</span><span>PCI Code : 7456</span></div></div>
+      <div class="tt-year-box"><div class="course">B.Pharm</div><div class="year">{{selected_year or 'All Years'}}</div><div class="title">Timetable</div></div>
+    </div>
+    <div class="tt-meta-strip"><span>Class : &nbsp;{{selected_year or 'All Years'}}</span><span>Branch : &nbsp;Pharmacy</span><span>Academic Year : &nbsp;{{academic_year}}</span></div>
+
+    <div class="tt-calendar-wrap"><table class="tt-calendar"><thead><tr><th class="time">DAY &amp; TIME</th>{% set day_list = [selected_day] if view=='day' else days %}{% for d in day_list %}<th>{{d[:4].upper() if d=='Thursday' else d[:3].upper()}}</th>{% endfor %}</tr></thead><tbody>
+      {% for slot in grid_rows %}
+        {% if slot.lunch_before %}
+        <tr class="tt-lunch"><td colspan="{{1 + (1 if view=='day' else 6)}}">LUNCH BREAK</td></tr>
+        {% endif %}
+        <tr><td><div class="tt-time">{{slot.display_start}} – {{slot.display_end}}</div></td>{% for d in day_list %}{% set cell=slot.cells[d] %}{% if not cell.skip %}<td{% if cell.rowspan>1 %} rowspan="{{cell.rowspan}}"{% endif %}>{% for r in cell.entries %}<div class="tt-entry {% if r.session_type=='Practical' %}practical{% else %}lecture{% endif %}"><div class="tt-code">{{r.subject_code or r.subject_name}}</div><div class="tt-name">{{r.subject_name}}</div>{% if r.session_type=='Practical' %}<span class="tt-badge">Practical · {{r.batch}}</span>{% endif %}{% if session.get('role')=='admin' %}<form method="post" action="{{url_for('delete_timetable',timetable_id=r.id)}}" onsubmit="return confirm('Delete this timetable entry?')"><button class="tt-delete" type="submit">×</button></form>{% endif %}</div>{% else %}<div class="tt-empty">—</div>{% endfor %}</td>{% endif %}{% endfor %}</tr>
+      {% else %}<tr><td colspan="{{1 + (1 if view=='day' else 6)}}" class="tt-empty">No timetable entries found for the selected filters.</td></tr>{% endfor %}
+    </tbody></table></div>
+
+    <div class="tt-subject-head"><span class="icon">▤</span> Subject Details</div>
+    <table class="tt-subjects"><thead><tr><th>Subject Code</th><th>Subject Name</th><th>Subject Teacher</th></tr></thead><tbody>{% for s in subject_details %}<tr><td>{{s.code}}</td><td>{{s.name}}</td><td>{{s.teacher}}</td></tr>{% else %}<tr><td colspan="3" class="tt-empty">No subject details available.</td></tr>{% endfor %}</tbody></table>
+  </div>
+</div>
+
+<script>
+(function(){const sess=document.getElementById('addSession'),bw=document.getElementById('addBatchWrap'),yr=document.getElementById('addYear'),sub=document.getElementById('addSubject');function syncBatch(){if(sess&&bw)bw.style.display=sess.value==='Practical'?'block':'none'}function syncSubjects(){if(!yr||!sub)return;const y=yr.value;Array.from(sub.options).forEach(o=>{if(!o.value){o.hidden=false;return}o.hidden=!!y&&o.dataset.year!==y});if(sub.selectedOptions[0]&&sub.selectedOptions[0].hidden)sub.value=''}sess&&sess.addEventListener('change',syncBatch);yr&&yr.addEventListener('change',syncSubjects);syncBatch();syncSubjects()})();
+</script>
+{% endblock %}
