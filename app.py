@@ -3575,7 +3575,31 @@ def mobile_timetable(user):
     rows=db.execute("""SELECT t.*,COALESCE(sub.code,'') subject_code,COALESCE(sub.name,'') subject_name,
         COALESCE(u.full_name,u.username,'') teacher_name
         FROM timetable t LEFT JOIN subjects sub ON sub.id=t.subject_id LEFT JOIN users u ON u.id=t.teacher_id
-        WHERE """+' AND '.join(where)+" ORDER BY CASE t.day_of_week WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2 WHEN 'Wednesday' THEN 3 WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 WHEN 'Saturday' THEN 6 ELSE 7 END,t.start_time,t.lecture_no",tuple(params)).fetchall(); db.close(); return _mobile_ok(items=_mobile_rows(rows),timetable=_mobile_rows(rows))
+            sql = """SELECT t.*,COALESCE(sub.code,'') subject_code,COALESCE(sub.name,'') subject_name,
+        COALESCE(u.full_name,u.username,'') teacher_name
+        FROM timetable t
+        LEFT JOIN subjects sub ON sub.id=t.subject_id
+        LEFT JOIN users u ON u.id=t.teacher_id"""
+
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+
+    sql += """ ORDER BY CASE t.day_of_week
+        WHEN 'Monday' THEN 1
+        WHEN 'Tuesday' THEN 2
+        WHEN 'Wednesday' THEN 3
+        WHEN 'Thursday' THEN 4
+        WHEN 'Friday' THEN 5
+        WHEN 'Saturday' THEN 6
+        ELSE 7 END,
+        t.start_time,t.lecture_no"""
+
+    rows = db.execute(sql, tuple(params)).fetchall()
+    db.close()
+    return _mobile_ok(
+        items=_mobile_rows(rows),
+        timetable=_mobile_rows(rows)
+    )
 
 
 @app.get('/api/mobile/attendance')
