@@ -3827,10 +3827,15 @@ def mobile_reports_csv(user):
         a.attendance_date,a.lecture_no,a.session_type,a.batch attendance_batch,a.status
         FROM attendance a
         JOIN students s ON s.id=a.student_id
-        JOIN subjects sub ON sub.id=a.subject_id
-        WHERE """ + cond + """ ORDER BY a.attendance_date DESC,a.lecture_no DESC"""
+        JOIN subjects sub ON sub.id=a.subject_id"""
 
-    rows = db.execute(sql, tuple(params)).fetchall()
+if cond:
+    sql += " WHERE " + cond
+
+sql += " ORDER BY a.attendance_date DESC,a.lecture_no DESC"
+
+rows = db.execute(sql, tuple(params)).fetchall()
+db.close()
     db.close()
     out=io.StringIO(); writer=csv.writer(out); writer.writerow(['PRN','Name','Year','Student Batch','Subject Code','Subject','Date','Lecture No','Session Type','Attendance Batch','Status']);
     for r in rows: writer.writerow([r['prn'],r['name'],r['year'],r['batch'],r['subject_code'],r['subject_name'],r['attendance_date'],r['lecture_no'],r['session_type'],r['attendance_batch'],r['status']])
