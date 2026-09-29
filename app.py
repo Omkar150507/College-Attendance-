@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 from xml.sax.saxutils import escape as xml_escape
 
 try:
-    import psycopg2
+    import psycopg2 
     from psycopg2.extras import RealDictCursor
     from psycopg2.pool import ThreadedConnectionPool
     POSTGRES_AVAILABLE = True
@@ -2954,8 +2954,8 @@ def leaves():
 @app.post("/leaves/<int:leave_id>/review")
 @login_required
 def review_leave(leave_id):
-    if session.get("role") != 'admin':
-        flash("Only Admin can review leave applications.","error"); return redirect(url_for("leaves"))
+    if session.get("role") not in ('admin','teacher'):
+        flash("Only Admin or teachers can review leave applications.","error"); return redirect(url_for("leaves"))
     status=request.form.get("status"); note=request.form.get("review_note","").strip()
     if status not in ('Approved','Rejected'): return redirect(url_for("leaves"))
     db=get_db(); row=db.execute("SELECT l.*,u.id user_id,s.name FROM leave_applications l JOIN students s ON s.id=l.student_id JOIN users u ON u.student_id=s.id WHERE l.id=?",(leave_id,)).fetchone()
@@ -3228,6 +3228,582 @@ def manifest():
 def service_worker():
     js="""self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>self.clients.claim());self.addEventListener('notificationclick',e=>{e.notification.close();e.waitUntil(clients.openWindow('/notifications'))});"""
     return Response(js,mimetype='application/javascript')
+
+
+# ========================= MOBILE APP API =========================
+# Native Flutter client endpoints. These use the same database and business
+# rules as the web application; no second database is created.
+MOBILE_TOKEN_MAX_AGE = 60 * 60 * 24 * 30
+
+def _mobile_json(value):
+    if isinstance(value, dict):
+        return {k: _mobile_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_mobile_json(v) for v in value]
+    try:
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+    except Exception:
+        pass
+    return value
+
+
+def _mobile_row(row):
+    return dict(row) if row is not None else None
+
+
+def _mobile_rows(rows):
+    return [dict(r) for r in rows]
+
+
+def _mobile_ok(**payload):
+    payload.setdefault('ok', True)
+    return _mobile_json(payload)
+
+
+def _mobile_error(message, status=400):
+    return _mobile_json({'ok': False, 'message': message}), status
+
+
+def _mobile_token(user_id, role):
+    serializer = URLSafeTimedSerializer(app.secret_key, salt='mobile-api-v1')
+    return serializer.dumps({'user_id': int(user_id), 'role': role})
+
+
+def _mobile_user_from_token():
+    header = request.headers.get('Authorization', '')
+    if not header.startswith('Bearer '):
+        return None
+    token = header[7:].strip()
+    if not token:
+        return None
+    try:
+        data = URLSafeTimedSerializer(app.secret_key, salt='mobile-api-v1').loads(
+            token, max_age=MOBILE_TOKEN_MAX_AGE
+        )
+        db = get_db()
+        user = db.execute('SELECT * FROM users WHERE id=? LIMIT 1', (int(data['user_id']),)).fetchone()
+        db.close()
+        if not user or user['role'] != data.get('role') or not int(user['approved'] or 0):
+            return None
+        if user['role'] == 'student' and user['student_id']:
+            db = get_db()
+            blocked = db.execute('SELECT blocked FROM students WHERE id=?', (user['student_id'],)).fetchone()
+            db.close()
+            if blocked and int(blocked['blocked'] or 0):
+                return None
+        return user
+    except Exception:
+        return None
+
+
+def mobile_auth(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        user = _mobile_user_from_token()
+        if not user:
+            return _mobile_error('Authentication required.', 401)
+        return view(user, *args, **kwargs)
+    return wrapped
+
+
+def _mobile_require_role(user, roles):
+    if user['role'] not in roles:
+        return _mobile_error('You do not have permission for this action.', 403)
+    return None
+
+
+def _mobile_user_json(db, user):
+    result = {
+        'id': user['id'],
+        'username': user['username'],
+        'name': user['full_name'] or user['username'],
+        'full_name': user['full_name'] or user['username'],
+        'email': user['email'] or '',
+        'mobile': user['mobile'] or '',
+        'role': user['role'],
+        'approved': int(user['approved'] or 0),
+    }
+    if user['role'] == 'student' and user['student_id']:
+        st = db.execute('SELECT * FROM students WHERE id=?', (user['student_id'],)).fetchone()
+        if st:
+            result.update({
+                'student_id': st['id'], 'prn': st['prn'], 'roll_no': st['roll_no'],
+                'year': st['year'], 'batch': st['batch'] or '',
+                'division': st['division'] or '', 'course': st['course'] or '',
+            })
+    return result
+
+
+@app.post('/api/mobile/login')
+def mobile_login():
+    data = request.get_json(silent=True) or {}
+    identifier = str(data.get('username') or data.get('identifier') or '').strip()
+    password = str(data.get('password') or '')
+    role = str(data.get('role') or '').strip().lower()
+    if not identifier or not password or role not in ('admin', 'teacher', 'student'):
+        return _mobile_error('Username/PRN, password and valid role are required.')
+
+    db = get_db()
+    if role == 'student':
+        user = db.execute("""SELECT u.* FROM users u
+            LEFT JOIN students s ON s.id=u.student_id
+            WHERE u.role='student' AND (lower(u.username)=lower(?) OR s.prn=?)
+            LIMIT 1""", (identifier, identifier)).fetchone()
+    else:
+        user = db.execute("SELECT * FROM users WHERE lower(username)=lower(?) AND role=? LIMIT 1", (identifier, role)).fetchone()
+    if not user or not check_password_hash(user['password'], password):
+        db.close()
+        return _mobile_error('Invalid login credentials.', 401)
+    if not int(user['approved'] or 0):
+        db.close()
+        return _mobile_error('Your account is waiting for admin approval.', 403)
+    if role == 'student' and user['student_id']:
+        st = db.execute('SELECT blocked FROM students WHERE id=?', (user['student_id'],)).fetchone()
+        if st and int(st['blocked'] or 0):
+            db.close(); return _mobile_error('Your account is blocked. Please contact administration.', 403)
+    result_user = _mobile_user_json(db, user)
+    db.close()
+    return _mobile_ok(token=_mobile_token(user['id'], user['role']), user=result_user)
+
+
+@app.get('/api/mobile/dashboard')
+@mobile_auth
+def mobile_dashboard(user):
+    db = get_db()
+    role = user['role']
+    if role == 'admin':
+        stats = {
+            'students': db.execute("SELECT COUNT(*) FROM students").fetchone()[0],
+            'teachers': db.execute("SELECT COUNT(*) FROM users WHERE role='teacher' AND approved=1").fetchone()[0],
+            'subjects': db.execute("SELECT COUNT(*) FROM subjects").fetchone()[0],
+            'attendance_today': db.execute("SELECT COUNT(*) FROM attendance WHERE attendance_date=?", (date.today().isoformat(),)).fetchone()[0],
+        }
+    elif role == 'teacher':
+        stats = {
+            'assigned_subjects': db.execute("SELECT COUNT(*) FROM subject_teachers WHERE teacher_id=?", (user['id'],)).fetchone()[0],
+            'attendance_today': db.execute("SELECT COUNT(*) FROM attendance WHERE attendance_date=? AND (marked_by=? OR conducted_by_teacher_id=?)", (date.today().isoformat(), user['id'], user['id'])).fetchone()[0],
+        }
+    else:
+        st = db.execute('SELECT * FROM students WHERE id=?', (user['student_id'],)).fetchone()
+        total = db.execute('SELECT COUNT(*) FROM attendance WHERE student_id=?', (user['student_id'],)).fetchone()[0]
+        present = db.execute("SELECT COUNT(*) FROM attendance WHERE student_id=? AND status='Present'", (user['student_id'],)).fetchone()[0]
+        stats = {'year': st['year'] if st else '', 'batch': st['batch'] if st else '', 'total_lectures': total, 'present': present, 'attendance_percentage': round(100 * present / total, 1) if total else 0}
+    recent = db.execute("""SELECT a.attendance_date,a.lecture_no,a.status,s.name student_name,
+        sub.code subject_code,sub.name subject_name
+        FROM attendance a JOIN students s ON s.id=a.student_id JOIN subjects sub ON sub.id=a.subject_id
+        WHERE a.attendance_date>=? ORDER BY a.attendance_date DESC,a.id DESC LIMIT 20""", ((date.today()).isoformat(),)).fetchall()
+    if role == 'student':
+        recent = db.execute("""SELECT a.attendance_date,a.lecture_no,a.status,
+            sub.code subject_code,sub.name subject_name
+            FROM attendance a JOIN subjects sub ON sub.id=a.subject_id
+            WHERE a.student_id=? ORDER BY a.attendance_date DESC,a.id DESC LIMIT 20""", (user['student_id'],)).fetchall()
+    payload = {'user': _mobile_user_json(db, user), 'stats': stats, 'recent': _mobile_rows(recent)}
+    db.close()
+    return _mobile_ok(**payload)
+
+
+@app.get('/api/mobile/profile')
+@mobile_auth
+def mobile_profile(user):
+    db = get_db(); payload = _mobile_user_json(db, user); db.close()
+    return _mobile_ok(user=payload, profile=payload)
+
+
+@app.put('/api/mobile/profile')
+@mobile_auth
+def mobile_update_profile(user):
+    data = request.get_json(silent=True) or {}
+    allowed = {k: str(data[k]).strip() for k in ('full_name','email','mobile') if k in data}
+    if not allowed:
+        return _mobile_error('No profile fields were provided.')
+    sets=[]; params=[]
+    for k,v in allowed.items(): sets.append(f'{k}=?'); params.append(v)
+    params.append(user['id'])
+    db=get_db(); db.execute(f"UPDATE users SET {','.join(sets)} WHERE id=?", tuple(params)); db.commit()
+    fresh=db.execute('SELECT * FROM users WHERE id=?',(user['id'],)).fetchone(); payload=_mobile_user_json(db,fresh); db.close()
+    return _mobile_ok(user=payload, profile=payload, message='Profile updated successfully.')
+
+
+@app.post('/api/mobile/student/register')
+def mobile_student_register():
+    data=request.get_json(silent=True) or {}
+    required=['prn','name','year','batch','email','mobile','username','security_question','security_answer','password','confirm_password']
+    if any(not str(data.get(k) or '').strip() for k in required):
+        return _mobile_error('All student registration fields are required.')
+    prn=' '.join(str(data['prn']).strip().split()); name=' '.join(str(data['name']).strip().split())
+    year=str(data['year']).strip(); batch=str(data['batch']).strip()
+    if year not in YEAR_OPTIONS: return _mobile_error('Please select a valid year.')
+    if batch.upper() in ('A','B','C','D'): batch='Batch '+batch.upper()
+    if batch not in ('Batch A','Batch B','Batch C','Batch D'): return _mobile_error('Please select a valid batch A, B, C or D.')
+    if str(data['password']) != str(data['confirm_password']): return _mobile_error('Passwords do not match.')
+    password_error=validate_password(str(data['password']))
+    if password_error: return _mobile_error(password_error)
+    if str(data['security_question']).strip() not in SECURITY_QUESTIONS: return _mobile_error('Please select a valid security question.')
+    db=get_db()
+    try:
+        if db.execute('SELECT id FROM users WHERE lower(username)=lower(?) LIMIT 1',(str(data['username']).strip(),)).fetchone():
+            db.close(); return _mobile_error('Username is already in use.')
+        student=db.execute('SELECT * FROM students WHERE prn=? LIMIT 1',(prn,)).fetchone()
+        if student and int(student['blocked'] or 0): db.close(); return _mobile_error('This student record is blocked.',403)
+        if student and db.execute('SELECT id FROM users WHERE student_id=? LIMIT 1',(student['id'],)).fetchone():
+            db.close(); return _mobile_error('An account for this PRN already exists.')
+        if not student:
+            roll_no=prn
+            if db.execute('SELECT id FROM students WHERE roll_no=? LIMIT 1',(roll_no,)).fetchone():
+                roll_no='PRN-'+prn
+            db.execute("""INSERT INTO students(roll_no,prn,name,course,year,division,batch,blocked,academic_year)
+                VALUES(?,?,?,?,?,?,?,?,?)""", (roll_no,prn,name,'B.Pharm',year,batch[6:] if batch.startswith('Batch ') else batch,batch,0,current_academic_year_value(db)))
+            student=db.execute('SELECT * FROM students WHERE prn=? ORDER BY id DESC LIMIT 1',(prn,)).fetchone()
+        else:
+            # Registration may complete an existing unlinked student record, while
+            # preserving admin-entered values where possible.
+            db.execute('UPDATE students SET name=?,year=?,batch=?,division=? WHERE id=?',(name,year,batch,batch[6:],student['id']))
+            student=db.execute('SELECT * FROM students WHERE id=?',(student['id'],)).fetchone()
+        dept=student['department_id'] if 'department_id' in student.keys() else None
+        db.execute("""INSERT INTO users(username,password,role,full_name,email,mobile,security_question,security_answer,approved,student_id,department_id)
+            VALUES(?,?,?,?,?,?,?, ?,1,?,?)""", (str(data['username']).strip(),generate_password_hash(str(data['password'])),'student',name,str(data['email']).strip().lower(),str(data['mobile']).strip(),str(data['security_question']).strip(),generate_password_hash(str(data['security_answer']).strip().casefold()),student['id'],dept))
+        db.commit(); created=db.execute('SELECT * FROM users WHERE username=?',(str(data['username']).strip(),)).fetchone()
+        result=_mobile_user_json(db,created); db.close()
+        return _mobile_ok(message='Student account created successfully.',user=result)
+    except Exception as exc:
+        try: db.rollback(); db.close()
+        except Exception: pass
+        app.logger.exception('Mobile student registration failed')
+        return _mobile_error('Student registration failed. Please check the details and try again.',500)
+
+
+@app.post('/api/mobile/teacher/register')
+def mobile_teacher_register():
+    data=request.get_json(silent=True) or {}
+    required=['name','username','email','mobile','security_question','security_answer','password','confirm_password']
+    if any(not str(data.get(k) or '').strip() for k in required): return _mobile_error('All teacher registration fields are required.')
+    if str(data['password']) != str(data['confirm_password']): return _mobile_error('Passwords do not match.')
+    password_error=validate_password(str(data['password']))
+    if password_error: return _mobile_error(password_error)
+    if str(data['security_question']).strip() not in SECURITY_QUESTIONS: return _mobile_error('Please select a valid security question.')
+    db=get_db()
+    try:
+        if db.execute('SELECT id FROM users WHERE lower(username)=lower(?) LIMIT 1',(str(data['username']).strip(),)).fetchone(): db.close(); return _mobile_error('Username is already in use.')
+        dept=db.execute('SELECT id FROM departments ORDER BY id LIMIT 1').fetchone(); dept_id=dept['id'] if dept else None
+        db.execute("""INSERT INTO users(username,password,role,full_name,email,mobile,security_question,security_answer,approved,department_id)
+            VALUES(?,?,?,?,?,?,?,?,0,?)""",(str(data['username']).strip(),generate_password_hash(str(data['password'])),'teacher',str(data['name']).strip(),str(data['email']).strip().lower(),str(data['mobile']).strip(),str(data['security_question']).strip(),generate_password_hash(str(data['security_answer']).strip().casefold()),dept_id))
+        db.commit(); db.close(); return _mobile_ok(message='Teacher registration submitted. Admin approval is required before login.')
+    except Exception:
+        try: db.rollback(); db.close()
+        except Exception: pass
+        return _mobile_error('Teacher registration failed. Please check the details and try again.',500)
+
+
+@app.post('/api/mobile/forgot-password')
+def mobile_forgot_password():
+    data=request.get_json(silent=True) or {}; step=str(data.get('step') or '1'); role=str(data.get('role') or 'student').lower(); identifier=str(data.get('identifier') or data.get('username') or data.get('prn') or '').strip(); mobile=str(data.get('mobile') or '').strip()
+    if role not in ('student','teacher'): return _mobile_error('Forgot password is available for student or teacher accounts.')
+    db=get_db()
+    if step=='1':
+        if not identifier or not mobile: db.close(); return _mobile_error('Username/PRN and mobile number are required.')
+        if role=='student':
+            user=db.execute("""SELECT u.id,u.security_question,u.approved FROM users u JOIN students s ON s.id=u.student_id
+                WHERE s.prn=? AND u.mobile=? AND u.role='student' LIMIT 1""",(identifier,mobile)).fetchone()
+        else:
+            user=db.execute("SELECT id,security_question,approved FROM users WHERE lower(username)=lower(?) AND mobile=? AND role='teacher' LIMIT 1",(identifier,mobile)).fetchone()
+        db.close()
+        if not user or not int(user['approved'] or 0) or not user['security_question']: return _mobile_error('The details do not match an approved account.')
+        return _mobile_ok(step=2, security_question=user['security_question'])
+    if not identifier or not mobile or not data.get('security_answer') or not data.get('new_password') or not data.get('confirm_password'): db.close(); return _mobile_error('All password recovery fields are required.')
+    if str(data['new_password']) != str(data['confirm_password']): db.close(); return _mobile_error('Passwords do not match.')
+    password_error=validate_password(str(data['new_password']))
+    if password_error: db.close(); return _mobile_error(password_error)
+    if role=='student':
+        user=db.execute("""SELECT u.* FROM users u JOIN students s ON s.id=u.student_id
+            WHERE s.prn=? AND u.mobile=? AND u.role='student' LIMIT 1""",(identifier,mobile)).fetchone()
+    else:
+        user=db.execute("SELECT * FROM users WHERE lower(username)=lower(?) AND mobile=? AND role='teacher' LIMIT 1",(identifier,mobile)).fetchone()
+    if not user or not int(user['approved'] or 0) or not user['security_answer'] or not check_password_hash(user['security_answer'],str(data['security_answer']).strip().casefold()): db.close(); return _mobile_error('Incorrect recovery details.')
+    db.execute('UPDATE users SET password=? WHERE id=?',(generate_password_hash(str(data['new_password'])),user['id'])); db.commit(); db.close(); return _mobile_ok(message='Password changed successfully.')
+
+
+@app.get('/api/mobile/subjects')
+@mobile_auth
+def mobile_subjects(user):
+    db=get_db(); year=str(request.args.get('year') or '').strip(); params=[]; where=[]
+    if user['role']=='student':
+        st=db.execute('SELECT * FROM students WHERE id=?',(user['student_id'],)).fetchone(); year=st['year'] if st else ''
+    if user['role']=='teacher':
+        where.append('s.id IN (SELECT subject_id FROM subject_teachers WHERE teacher_id=?)'); params.append(user['id'])
+    if year and year in YEAR_OPTIONS: where.append('s.year=?'); params.append(year)
+    q='SELECT s.* FROM subjects s'+((' WHERE '+' AND '.join(where)) if where else '')+' ORDER BY s.year,s.code'
+    rows=db.execute(q,tuple(params)).fetchall(); db.close(); return _mobile_ok(items=_mobile_rows(rows),subjects=_mobile_rows(rows))
+
+
+@app.get('/api/mobile/students')
+@mobile_auth
+def mobile_students(user):
+    denied=_mobile_require_role(user,('admin','teacher'))
+    if denied: return denied
+    db=get_db(); q=str(request.args.get('q') or '').strip(); year=str(request.args.get('year') or '').strip(); where=[]; params=[]
+    if user['role']=='teacher':
+        assigned=db.execute('SELECT DISTINCT s.year FROM subjects s JOIN subject_teachers st ON st.subject_id=s.id WHERE st.teacher_id=?',(user['id'],)).fetchall()
+        years=[r['year'] for r in assigned]; where.append('s.year IN ('+','.join('?' for _ in years)+')' if years else '1=0'); params.extend(years)
+    if q: where.append('(lower(s.name) LIKE lower(?) OR s.prn LIKE ? OR s.roll_no LIKE ?)'); params.extend([f'%{q}%',f'%{q}%',f'%{q}%'])
+    if year and year in YEAR_OPTIONS: where.append('s.year=?'); params.append(year)
+    rows=db.execute('SELECT s.*,u.username FROM students s LEFT JOIN users u ON u.student_id=s.id '+((' WHERE '+' AND '.join(where)) if where else '')+' ORDER BY s.year,s.name',tuple(params)).fetchall(); db.close(); return _mobile_ok(items=_mobile_rows(rows),students=_mobile_rows(rows))
+
+
+@app.get('/api/mobile/teachers')
+@mobile_auth
+def mobile_teachers(user):
+    denied=_mobile_require_role(user,('admin',))
+    if denied: return denied
+    db=get_db(); rows=db.execute("SELECT id,username,full_name,email,mobile,approved FROM users WHERE role='teacher' ORDER BY full_name,username").fetchall(); db.close(); return _mobile_ok(items=_mobile_rows(rows),teachers=_mobile_rows(rows))
+
+
+@app.get('/api/mobile/timetable')
+@mobile_auth
+def mobile_timetable(user):
+    db=get_db(); year=str(request.args.get('year') or '').strip(); day=str(request.args.get('day') or '').strip(); where=[]; params=[]
+    if user['role']=='student':
+        st=db.execute('SELECT * FROM students WHERE id=?',(user['student_id'],)).fetchone()
+        if not st: db.close(); return _mobile_error('Student record not found.',404)
+        where += ['t.year=?',"(COALESCE(t.session_type,'Lecture')='Lecture' OR COALESCE(t.batch,'')=?)"]; params += [st['year'],st['batch'] or '']
+    elif user['role']=='teacher':
+        where.append('t.teacher_id=?'); params.append(user['id'])
+        if year in YEAR_OPTIONS: where.append('t.year=?'); params.append(year)
+    elif year in YEAR_OPTIONS:
+        where.append('t.year=?'); params.append(year)
+    if day: where.append('t.day_of_week=?'); params.append(day)
+    rows=db.execute("""SELECT t.*,COALESCE(sub.code,'') subject_code,COALESCE(sub.name,'') subject_name,
+        COALESCE(u.full_name,u.username,'') teacher_name
+        FROM timetable t LEFT JOIN subjects sub ON sub.id=t.subject_id LEFT JOIN users u ON u.id=t.teacher_id
+        WHERE """+' AND '.join(where)+" ORDER BY CASE t.day_of_week WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2 WHEN 'Wednesday' THEN 3 WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 WHEN 'Saturday' THEN 6 ELSE 7 END,t.start_time,t.lecture_no",tuple(params)).fetchall(); db.close(); return _mobile_ok(items=_mobile_rows(rows),timetable=_mobile_rows(rows))
+
+
+@app.get('/api/mobile/attendance')
+@mobile_auth
+def mobile_attendance(user):
+    db=get_db(); where=[]; params=[]
+    date_filter=str(request.args.get('date') or '').strip(); subject_id=request.args.get('subject_id',type=int)
+    if user['role']=='student': where.append('a.student_id=?'); params.append(user['student_id'])
+    elif user['role']=='teacher': where.append('a.subject_id IN (SELECT subject_id FROM subject_teachers WHERE teacher_id=?)'); params.append(user['id'])
+    if date_filter: where.append('a.attendance_date=?'); params.append(date_filter)
+    if subject_id:
+        if user['role']=='teacher' and not can_use_subject(db,subject_id): db.close(); return _mobile_error('You are not assigned to that subject.',403)
+        where.append('a.subject_id=?'); params.append(subject_id)
+    rows=db.execute("""SELECT a.*,s.prn,s.name student_name,s.year,s.batch,
+        sub.code subject_code,sub.name subject_name,COALESCE(u.full_name,u.username,'') marked_by_name
+        FROM attendance a JOIN students s ON s.id=a.student_id JOIN subjects sub ON sub.id=a.subject_id
+        LEFT JOIN users u ON u.id=a.marked_by
+        WHERE """+' AND '.join(where)+" ORDER BY a.attendance_date DESC,a.lecture_no DESC,a.id DESC LIMIT 1000",tuple(params)).fetchall(); db.close(); return _mobile_ok(items=_mobile_rows(rows),attendance=_mobile_rows(rows))
+
+
+@app.post('/api/mobile/attendance')
+@mobile_auth
+def mobile_mark_attendance(user):
+    denied=_mobile_require_role(user,('admin','teacher'))
+    if denied: return denied
+    data=request.get_json(silent=True) or {}; records=data.get('records') if isinstance(data.get('records'),list) else [data]
+    if not records: return _mobile_error('No attendance records were supplied.')
+    db=get_db(); saved=0
+    try:
+        for r in records:
+            subject_id=int(r.get('subject_id') or 0); student_id=int(r.get('student_id') or 0); status=str(r.get('status') or '').strip().title()
+            if status not in ('Present','Absent'): raise ValueError('Attendance status must be Present or Absent.')
+            if not subject_id or not student_id: raise ValueError('Subject and student are required.')
+            if user['role']=='teacher' and not can_use_subject(db,subject_id): raise PermissionError('You are not assigned to that subject.')
+            sub=db.execute('SELECT * FROM subjects WHERE id=?',(subject_id,)).fetchone(); st=db.execute('SELECT * FROM students WHERE id=?',(student_id,)).fetchone()
+            if not sub or not st: raise ValueError('Subject or student not found.')
+            if st['year'] != sub['year']: raise ValueError('Student and subject year do not match.')
+            session_type=str(r.get('session_type') or 'Lecture'); batch=str(r.get('batch') or '')
+            if session_type not in ('Lecture','Practical'): session_type='Lecture'
+            if session_type=='Practical':
+                if batch.upper() in ('A','B','C','D'): batch='Batch '+batch.upper()
+                if batch not in ('Batch A','Batch B','Batch C','Batch D') or (st['batch'] or '') != batch: raise ValueError('Invalid practical batch for this student.')
+            else: batch=''
+            ad=str(r.get('attendance_date') or date.today().isoformat()); lecture_no=int(r.get('lecture_no') or 1)
+            db.execute("""INSERT INTO attendance(student_id,subject_id,attendance_date,lecture_no,lecture_time,start_time,end_time,session_type,batch,status,marked_by,academic_year,scheduled_teacher_id,conducted_by_teacher_id,teacher_status)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(student_id,subject_id,attendance_date,lecture_no) DO UPDATE SET lecture_time=excluded.lecture_time,start_time=excluded.start_time,end_time=excluded.end_time,session_type=excluded.session_type,batch=excluded.batch,status=excluded.status,marked_by=excluded.marked_by,academic_year=excluded.academic_year,scheduled_teacher_id=excluded.scheduled_teacher_id,conducted_by_teacher_id=excluded.conducted_by_teacher_id,teacher_status=excluded.teacher_status""",
+                (student_id,subject_id,ad,lecture_no,str(r.get('lecture_time') or ''),str(r.get('start_time') or ''),str(r.get('end_time') or ''),session_type,batch,status,user['id'],current_academic_year_value(db),r.get('scheduled_teacher_id'),r.get('conducted_by_teacher_id') or user['id'],str(r.get('teacher_status') or 'Scheduled teacher present'))); saved+=1
+        db.commit(); db.close(); return _mobile_ok(message=f'{saved} attendance record(s) saved.',saved=saved)
+    except PermissionError as exc:
+        db.rollback(); db.close(); return _mobile_error(str(exc),403)
+    except Exception as exc:
+        db.rollback(); db.close(); return _mobile_error(str(exc),400)
+
+
+@app.post('/api/mobile/attendance/history/delete')
+@mobile_auth
+def mobile_delete_attendance(user):
+    denied=_mobile_require_role(user,('admin',))
+    if denied: return denied
+    data=request.get_json(silent=True) or {}; subject_id=int(data.get('subject_id') or 0); attendance_date=str(data.get('attendance_date') or ''); lecture_no=int(data.get('lecture_no') or 0); session_type=str(data.get('session_type') or 'Lecture'); batch=str(data.get('batch') or '')
+    if not subject_id or not attendance_date or not lecture_no: return _mobile_error('Subject, date and lecture number are required.')
+    db=get_db(); where='subject_id=? AND attendance_date=? AND lecture_no=? AND COALESCE(session_type,\'Lecture\')=?'; params=[subject_id,attendance_date,lecture_no,session_type]
+    if session_type=='Practical': where+=' AND COALESCE(batch,\'\')=?'; params.append(batch)
+    cur=db.execute('DELETE FROM attendance WHERE '+where,tuple(params)); db.commit(); deleted=cur.rowcount; db.close(); return _mobile_ok(message=f'{deleted} attendance record(s) deleted.',deleted=deleted)
+
+
+@app.get('/api/mobile/reports')
+@mobile_auth
+def mobile_reports(user):
+    db=get_db(); where=[]; params=[]
+    subject_id=request.args.get('subject_id',type=int); year=str(request.args.get('year') or '').strip(); batch=str(request.args.get('batch') or '').strip()
+    if user['role']=='student': where.append('s.id=?'); params.append(user['student_id'])
+    elif user['role']=='teacher': where.append('a.subject_id IN (SELECT subject_id FROM subject_teachers WHERE teacher_id=?)'); params.append(user['id'])
+    if subject_id:
+        if user['role']=='teacher' and not can_use_subject(db,subject_id): db.close(); return _mobile_error('You are not assigned to that subject.',403)
+        where.append('a.subject_id=?'); params.append(subject_id)
+    if user['role']!='student' and year in YEAR_OPTIONS: where.append('s.year=?'); params.append(year)
+    if batch in ('A','B','C','D'): batch='Batch '+batch
+    if batch in ('Batch A','Batch B','Batch C','Batch D'): where.append('COALESCE(s.batch,\'\')=?'); params.append(batch)
+    cond=' AND '.join(where) if where else '1=1'
+    rows=db.execute("""SELECT s.id,s.prn,s.name,s.year,s.batch,sub.code subject_code,sub.name subject_name,
+        COUNT(a.id) total,COALESCE(SUM(CASE WHEN a.status='Present' THEN 1 ELSE 0 END),0) present,
+        COALESCE(SUM(CASE WHEN a.status='Absent' THEN 1 ELSE 0 END),0) absent,
+        CASE WHEN COUNT(a.id)=0 THEN 0 ELSE ROUND(100.0*SUM(CASE WHEN a.status='Present' THEN 1 ELSE 0 END)/COUNT(a.id),1) END percentage
+        FROM students s JOIN attendance a ON a.student_id=s.id JOIN subjects sub ON sub.id=a.subject_id
+        WHERE """+cond+" GROUP BY s.id,sub.id ORDER BY s.year,s.name,sub.code",tuple(params)).fetchall()
+    summary=db.execute("""SELECT COUNT(a.id) total,COALESCE(SUM(CASE WHEN a.status='Present' THEN 1 ELSE 0 END),0) present,
+        COALESCE(SUM(CASE WHEN a.status='Absent' THEN 1 ELSE 0 END),0) absent
+        FROM attendance a JOIN students s ON s.id=a.student_id WHERE """+cond,tuple(params)).fetchone()
+    total=int(summary['total'] or 0); present=int(summary['present'] or 0)
+    payload={'items':_mobile_rows(rows),'reports':_mobile_rows(rows),'summary':{'total':total,'present':present,'absent':int(summary['absent'] or 0),'percentage':round(100*present/total,1) if total else 0}}
+    db.close(); return _mobile_ok(**payload)
+
+
+@app.get('/api/mobile/notifications')
+@mobile_auth
+def mobile_notifications(user):
+    db=get_db(); rows=db.execute('SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 100',(user['id'],)).fetchall(); db.execute('UPDATE notifications SET is_read=1 WHERE user_id=?',(user['id'],)); db.commit(); db.close(); return _mobile_ok(items=_mobile_rows(rows),notifications=_mobile_rows(rows))
+
+
+@app.get('/api/mobile/leaves')
+@mobile_auth
+def mobile_leaves(user):
+    db=get_db()
+    if user['role']=='student':
+        rows=db.execute('SELECT l.*,s.name,s.prn FROM leave_applications l JOIN students s ON s.id=l.student_id WHERE l.student_id=? ORDER BY l.created_at DESC',(user['student_id'],)).fetchall()
+    else:
+        rows=db.execute('SELECT l.*,s.name,s.prn,s.year,s.batch FROM leave_applications l JOIN students s ON s.id=l.student_id ORDER BY l.created_at DESC').fetchall()
+    db.close(); return _mobile_ok(items=_mobile_rows(rows),leaves=_mobile_rows(rows))
+
+
+@app.post('/api/mobile/leaves')
+@mobile_auth
+def mobile_create_leave(user):
+    if user['role']!='student': return _mobile_error('Only students can apply for leave.',403)
+    data=request.get_json(silent=True) or {}; fd=str(data.get('from_date') or '').strip(); td=str(data.get('to_date') or '').strip(); reason=str(data.get('reason') or '').strip()
+    if not fd or not td or not reason or fd>td: return _mobile_error('Enter valid leave dates and reason.')
+    db=get_db(); cur=db.execute('INSERT INTO leave_applications(student_id,from_date,to_date,reason,status,created_at) VALUES(?,?,?,?,?,?)',(user['student_id'],fd,td,reason,'Pending',datetime.utcnow().isoformat()));
+    staff=db.execute("SELECT id FROM users WHERE role IN ('admin','teacher') AND approved=1").fetchall()
+    st=db.execute('SELECT name FROM students WHERE id=?',(user['student_id'],)).fetchone()
+    for x in staff: notify_user(db,x['id'],'New Leave Application',f"{st['name'] if st else 'Student'} submitted a leave application.",'/leaves')
+    db.commit(); row=db.execute('SELECT * FROM leave_applications WHERE student_id=? AND from_date=? AND to_date=? ORDER BY id DESC LIMIT 1',(user['student_id'],fd,td)).fetchone(); db.close(); return _mobile_ok(message='Leave application submitted.',leave=_mobile_row(row))
+
+
+@app.post('/api/mobile/leaves/<int:leave_id>/review')
+@mobile_auth
+def mobile_review_leave(user,leave_id):
+    if user['role'] not in ('admin','teacher'): return _mobile_error('Only admin or teachers can review leave applications.',403)
+    data=request.get_json(silent=True) or {}; status=str(data.get('status') or '').strip(); note=str(data.get('review_note') or '').strip()
+    if status not in ('Approved','Rejected'): return _mobile_error('Status must be Approved or Rejected.')
+    db=get_db(); row=db.execute("SELECT l.*,u.id user_id,s.name FROM leave_applications l JOIN students s ON s.id=l.student_id JOIN users u ON u.student_id=s.id WHERE l.id=?",(leave_id,)).fetchone()
+    if not row: db.close(); return _mobile_error('Leave application not found.',404)
+    db.execute('UPDATE leave_applications SET status=?,reviewed_by=?,review_note=? WHERE id=?',(status,user['id'],note,leave_id)); notify_user(db,row['user_id'],'Leave Application Updated',f'Your leave application has been {status.lower()}.','/leaves'); db.commit(); db.close(); return _mobile_ok(message=f'Leave {status.lower()}.')
+
+
+@app.post('/api/mobile/qr/session')
+@mobile_auth
+def mobile_qr_create(user):
+    if user['role'] not in ('admin','teacher'): return _mobile_error('Only admin or teachers can create QR attendance.',403)
+    data=request.get_json(silent=True) or {}; subject_id=int(data.get('subject_id') or 0); year=str(data.get('year') or '').strip(); session_type=str(data.get('session_type') or 'Lecture'); batch=str(data.get('batch') or ''); ad=str(data.get('attendance_date') or date.today().isoformat()); lecture_no=int(data.get('lecture_no') or 1); start=str(data.get('start_time') or ''); end=str(data.get('end_time') or '')
+    if user['role']=='teacher':
+        check_db=get_db(); allowed=can_use_subject(check_db,subject_id); check_db.close()
+        if not allowed: return _mobile_error('You are not assigned to that subject.',403)
+    if year not in YEAR_OPTIONS: return _mobile_error('Invalid year.')
+    if batch.upper() in ('A','B','C','D'): batch='Batch '+batch.upper()
+    if session_type not in ('Lecture','Practical'): session_type='Lecture'
+    if session_type=='Practical' and batch not in ('Batch A','Batch B','Batch C','Batch D'): return _mobile_error('Select a valid practical batch.')
+    db=get_db(); sub=db.execute('SELECT * FROM subjects WHERE id=? AND year=?',(subject_id,year)).fetchone()
+    if not sub: db.close(); return _mobile_error('Subject does not belong to the selected year.')
+    scheduled=None
+    if start and end:
+        day_name=date.fromisoformat(ad).strftime('%A')
+        scheduled=db.execute("""SELECT * FROM timetable WHERE year=? AND subject_id=? AND day_of_week=? AND COALESCE(session_type,'Lecture')=? AND (COALESCE(batch,'')=? OR ?='Lecture') AND start_time=? AND end_time=? ORDER BY id LIMIT 1""",(year,subject_id,day_name,session_type,batch if session_type=='Practical' else '',session_type,start,end)).fetchone()
+    scheduled_teacher=scheduled['teacher_id'] if scheduled and scheduled['teacher_id'] else None
+    conducted=int(data.get('conducted_by_teacher_id') or scheduled_teacher or user['id'])
+    teacher_status=str(data.get('teacher_status') or 'Scheduled teacher present')
+    token=secrets.token_urlsafe(24); exp=datetime.utcnow()+__import__('datetime').timedelta(minutes=10)
+    db.execute("""INSERT INTO qr_sessions(token,subject_id,year,attendance_date,lecture_no,lecture_time,start_time,end_time,session_type,batch,teacher_id,scheduled_teacher_id,conducted_by_teacher_id,teacher_status,expires_at,active)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)""",(token,subject_id,year,ad,lecture_no,f'{start}-{end}' if start or end else '',start,end,session_type,batch,user['id'],scheduled_teacher,conducted,teacher_status,exp.isoformat()))
+    db.commit(); db.close(); return _mobile_ok(token=token,qr_token=token,expires_at=exp.isoformat(),subject={'id':sub['id'],'code':sub['code'],'name':sub['name']},year=year,batch=batch,session_type=session_type)
+
+
+@app.post('/api/mobile/qr/scan')
+@mobile_auth
+def mobile_qr_scan(user):
+    if user['role']!='student': return _mobile_error('Only students can scan attendance QR codes.',403)
+    token=str((request.get_json(silent=True) or {}).get('token') or '').strip(); db=get_db(); row=db.execute('SELECT q.*,s.code,s.name subject_name FROM qr_sessions q JOIN subjects s ON s.id=q.subject_id WHERE q.token=? AND q.active=1',(token,)).fetchone()
+    if not row: db.close(); return _mobile_error('Invalid or expired QR session.',400)
+    if datetime.fromisoformat(row['expires_at']) < datetime.utcnow(): db.close(); return _mobile_error('This QR session has expired.',400)
+    st=db.execute('SELECT * FROM students WHERE id=?',(user['student_id'],)).fetchone()
+    if not st or st['year']!=row['year'] or (row['session_type']=='Practical' and (st['batch'] or '')!=row['batch']): db.close(); return _mobile_error('This QR is not for your year or practical batch.',403)
+    db.execute("""INSERT INTO attendance(student_id,subject_id,attendance_date,lecture_no,lecture_time,start_time,end_time,session_type,batch,status,marked_by,academic_year,scheduled_teacher_id,conducted_by_teacher_id,teacher_status)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(student_id,subject_id,attendance_date,lecture_no) DO UPDATE SET status='Present',marked_by=excluded.marked_by,lecture_time=excluded.lecture_time,start_time=excluded.start_time,end_time=excluded.end_time,session_type=excluded.session_type,batch=excluded.batch,academic_year=excluded.academic_year,scheduled_teacher_id=excluded.scheduled_teacher_id,conducted_by_teacher_id=excluded.conducted_by_teacher_id,teacher_status=excluded.teacher_status""",
+        (st['id'],row['subject_id'],row['attendance_date'],row['lecture_no'],row['lecture_time'],row['start_time'],row['end_time'],row['session_type'],row['batch'],'Present',row['conducted_by_teacher_id'] or row['teacher_id'],current_academic_year_value(db),row['scheduled_teacher_id'],row['conducted_by_teacher_id'] or row['teacher_id'],row['teacher_status']))
+    notify_user(db,user['id'],'Attendance Marked',f"You were marked Present for {row['subject_name']} (Lecture {row['lecture_no']}).",'/student/dashboard'); db.commit(); db.close(); return _mobile_ok(message='Attendance marked Present.',attendance={'status':'Present','subject_name':row['subject_name'],'lecture_no':row['lecture_no']})
+
+
+@app.post('/api/mobile/qr/<token>/close')
+@mobile_auth
+def mobile_qr_close(user,token):
+    if user['role'] not in ('admin','teacher'): return _mobile_error('Only admin or teachers can close QR sessions.',403)
+    db=get_db(); q=db.execute('SELECT * FROM qr_sessions WHERE token=?',(token,)).fetchone()
+    if not q: db.close(); return _mobile_error('QR session not found.',404)
+    if user['role']=='teacher' and q['teacher_id']!=user['id']: db.close(); return _mobile_error('You can only close your own QR session.',403)
+    absent_count,_=finalize_qr_session(db,token,user['id'] if user['role']=='teacher' else None); db.commit(); db.close(); return _mobile_ok(message='QR attendance session closed.',absent=absent_count)
+
+
+@app.get('/api/mobile/management')
+@mobile_auth
+def mobile_management(user):
+    if user['role']!='admin': return _mobile_error('Admin access required.',403)
+    db=get_db(); students=db.execute('SELECT s.*,u.username FROM students s LEFT JOIN users u ON u.student_id=s.id ORDER BY s.year,s.name').fetchall(); teachers=db.execute("SELECT id,username,full_name,email,mobile,approved FROM users WHERE role='teacher' ORDER BY full_name").fetchall(); subjects=db.execute('SELECT * FROM subjects ORDER BY year,code').fetchall(); db.close(); return _mobile_ok(students=_mobile_rows(students),teachers=_mobile_rows(teachers),subjects=_mobile_rows(subjects))
+
+
+@app.get('/api/mobile/activity-log')
+@mobile_auth
+def mobile_activity_log(user):
+    if user['role']!='admin': return _mobile_error('Admin access required.',403)
+    db=get_db(); rows=db.execute("""SELECT a.*,COALESCE(u.full_name,u.username,'') user_name FROM activity_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT 300""").fetchall(); db.close(); return _mobile_ok(items=_mobile_rows(rows),activity_log=_mobile_rows(rows))
+
+
+@app.post('/api/mobile/promotion')
+@mobile_auth
+def mobile_promotion(user):
+    if user['role']!='admin': return _mobile_error('Admin access required.',403)
+    data=request.get_json(silent=True) or {}; fy=str(data.get('from_year') or '').strip(); ty=str(data.get('to_year') or '').strip(); new_ay=str(data.get('new_academic_year') or data.get('academic_year') or '').strip()
+    if fy not in YEAR_OPTIONS or ty not in YEAR_OPTIONS or YEAR_OPTIONS.index(ty)!=YEAR_OPTIONS.index(fy)+1 or not new_ay: return _mobile_error('Select consecutive years and enter the new academic year.')
+    db=get_db(); students=db.execute('SELECT id FROM students WHERE year=?',(fy,)).fetchall(); changed=0
+    for st in students:
+        db.execute('INSERT INTO student_academic_history(student_id,academic_year,year,promoted_by) VALUES(?,?,?,?) ON CONFLICT(student_id,academic_year) DO NOTHING',(st['id'],new_ay,ty,user['id']))
+        db.execute('UPDATE students SET year=?,academic_year=? WHERE id=?',(ty,new_ay,st['id'])); changed+=1
+    db.execute('INSERT INTO app_settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',('academic_year',new_ay)); db.commit(); log_activity('Students promoted',f'{fy} to {ty} | {new_ay} | {changed} students'); db.close(); return _mobile_ok(message=f'{changed} student(s) promoted.',changed=changed)
+
+
+@app.get('/api/mobile/reports.csv')
+@mobile_auth
+def mobile_reports_csv(user):
+    db=get_db(); where=[]; params=[]
+    if user['role']=='student': where.append('s.id=?'); params.append(user['student_id'])
+    elif user['role']=='teacher': where.append('a.subject_id IN (SELECT subject_id FROM subject_teachers WHERE teacher_id=?)'); params.append(user['id'])
+    cond=' AND '.join(where) if where else '1=1'
+    rows=db.execute("""SELECT s.prn,s.name,s.year,s.batch,sub.code subject_code,sub.name subject_name,a.attendance_date,a.lecture_no,a.session_type,a.batch attendance_batch,a.status
+        FROM attendance a JOIN students s ON s.id=a.student_id JOIN subjects sub ON sub.id=a.subject_id WHERE """+cond+" ORDER BY a.attendance_date DESC,a.lecture_no DESC",tuple(params)).fetchall(); db.close()
+    out=io.StringIO(); writer=csv.writer(out); writer.writerow(['PRN','Name','Year','Student Batch','Subject Code','Subject','Date','Lecture No','Session Type','Attendance Batch','Status']);
+    for r in rows: writer.writerow([r['prn'],r['name'],r['year'],r['batch'],r['subject_code'],r['subject_name'],r['attendance_date'],r['lecture_no'],r['session_type'],r['attendance_batch'],r['status']])
+    return Response(out.getvalue(),mimetype='text/csv',headers={'Content-Disposition':'attachment; filename=attendance_report.csv'})
 
 # Initialize the database when the application is imported by Gunicorn/Render.
 init_db()
