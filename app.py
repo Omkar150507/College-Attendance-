@@ -3823,11 +3823,15 @@ def mobile_reports_csv(user):
     if user['role']=='student': where.append('s.id=?'); params.append(user['student_id'])
     elif user['role']=='teacher': where.append('a.subject_id IN (SELECT subject_id FROM subject_teachers WHERE teacher_id=?)'); params.append(user['id'])
     cond=' AND '.join(where) if where else '1=1'
-    sql = """SELECT s.prn,s.name,s.year,s.batch,sub.code subject_code,sub.name subject_name,
-        a.attendance_date,a.lecture_no,a.session_type,a.batch attendance_batch,a.status
-        FROM attendance a
-        JOIN students s ON s.id=a.student_id
-        JOIN subjects sub ON sub.id=a.subject_id"""
+    sql = (
+    "SELECT s.prn,s.name,s.year,s.batch,"
+    "sub.code subject_code,sub.name subject_name,"
+    "a.attendance_date,a.lecture_no,a.session_type,"
+    "a.batch attendance_batch,a.status "
+    "FROM attendance a "
+    "JOIN students s ON s.id=a.student_id "
+    "JOIN subjects sub ON sub.id=a.subject_id"
+)
 
 if cond:
     sql += " WHERE " + cond
