@@ -3823,8 +3823,15 @@ def mobile_reports_csv(user):
     if user['role']=='student': where.append('s.id=?'); params.append(user['student_id'])
     elif user['role']=='teacher': where.append('a.subject_id IN (SELECT subject_id FROM subject_teachers WHERE teacher_id=?)'); params.append(user['id'])
     cond=' AND '.join(where) if where else '1=1'
-    rows=db.execute("""SELECT s.prn,s.name,s.year,s.batch,sub.code subject_code,sub.name subject_name,a.attendance_date,a.lecture_no,a.session_type,a.batch attendance_batch,a.status
-        FROM attendance a JOIN students s ON s.id=a.student_id JOIN subjects sub ON sub.id=a.subject_id WHERE """+cond+" ORDER BY a.attendance_date DESC,a.lecture_no DESC",tuple(params)).fetchall(); db.close()
+    sql = """SELECT s.prn,s.name,s.year,s.batch,sub.code subject_code,sub.name subject_name,
+        a.attendance_date,a.lecture_no,a.session_type,a.batch attendance_batch,a.status
+        FROM attendance a
+        JOIN students s ON s.id=a.student_id
+        JOIN subjects sub ON sub.id=a.subject_id
+        WHERE """ + cond + """ ORDER BY a.attendance_date DESC,a.lecture_no DESC"""
+
+    rows = db.execute(sql, tuple(params)).fetchall()
+    db.close()
     out=io.StringIO(); writer=csv.writer(out); writer.writerow(['PRN','Name','Year','Student Batch','Subject Code','Subject','Date','Lecture No','Session Type','Attendance Batch','Status']);
     for r in rows: writer.writerow([r['prn'],r['name'],r['year'],r['batch'],r['subject_code'],r['subject_name'],r['attendance_date'],r['lecture_no'],r['session_type'],r['attendance_batch'],r['status']])
     return Response(out.getvalue(),mimetype='text/csv',headers={'Content-Disposition':'attachment; filename=attendance_report.csv'})
