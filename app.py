@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 from xml.sax.saxutils import escape as xml_escape
 
 try:
-    import psycopg2
+    import psycopg2 
     from psycopg2.extras import RealDictCursor
     from psycopg2.pool import ThreadedConnectionPool
     POSTGRES_AVAILABLE = True
