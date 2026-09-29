@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Student Registration - {{ college_name or 'Personal Attendance Management System' }}</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:linear-gradient(135deg,#eef6ff 0%,#f8fbff 52%,#eef6ff 100%);color:#172033;display:flex;align-items:center;justify-content:center;padding:28px 14px}.page{width:100%;max-width:820px}.card{background:#fff;border:1px solid #e1e8f0;border-radius:22px;box-shadow:0 18px 55px rgba(26,65,100,.12);overflow:hidden}.intro{text-align:center;padding:28px 28px 22px;background:#fff}.logo{width:82px;height:82px;object-fit:contain;display:block;margin:0 auto 10px}.brand{font-size:23px;font-weight:900;letter-spacing:.01em;color:#173f63}.intro p{margin:7px auto 0;max-width:620px;color:#718293;font-size:13px;line-height:1.55}.divider{height:1px;background:#e9eef3}.form-wrap{padding:24px 30px 30px}.form-title{text-align:center;margin-bottom:20px}.form-title h1{margin:0;color:#17466d;font-size:22px}.form-title p{margin:5px 0 0;color:#81909d;font-size:12px}.messages{display:grid;gap:9px;margin-bottom:16px}.msg{padding:11px 13px;border-radius:10px;background:#fff1f1;border:1px solid #ffd0d0;color:#a51d2d;font-size:13px}.msg.ok{background:#edf9f1;border-color:#c6ead1;color:#176b35}.section{margin-top:19px}.section:first-of-type{margin-top:0}.section-title{margin:0 0 11px;font-size:13px;font-weight:900;color:#315873}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.field label{display:block;font-size:11px;font-weight:800;color:#4b6171;margin:0 0 6px}.field input,.field select{width:100%;height:43px;border:1px solid #d5e0e8;border-radius:9px;background:#fbfdff;padding:0 11px;font-size:13px;color:#172033;outline:none}.field input:focus,.field select:focus{border-color:#1684c5;box-shadow:0 0 0 3px rgba(22,132,197,.10);background:#fff}.full{grid-column:1/-1}.actions{margin-top:23px}.btn{width:100%;height:46px;border:0;border-radius:10px;background:#07579a;color:#fff;font-size:14px;font-weight:900;cursor:pointer;box-shadow:0 7px 17px rgba(7,87,154,.18)}.btn:hover{background:#064d88}.login-note{text-align:center;margin-top:11px;color:#7a8c9a;font-size:11px}@media(max-width:680px){body{padding:12px}.intro{padding:24px 18px 19px}.brand{font-size:19px}.form-wrap{padding:21px 17px 24px}.grid{grid-template-columns:1fr}.full{grid-column:auto}}
+</style>
+</head>
+<body>
+<main class="page"><section class="card">
+<div class="intro">
+  <img class="logo" src="{{ url_for('static', filename=logo_file) }}" alt="Logo">
+  <div class="brand">{{ college_name or 'Personal Attendance Management System' }}</div>
+  <p>Create your student account to access attendance, timetable and other student features. If your details are already added by Admin, use the same PRN, name, year and batch.</p>
+</div>
+<div class="divider"></div>
+<div class="form-wrap">
+  <div class="form-title"><h1>Create Student Registration</h1><p>Enter your academic, contact and login details.</p></div>
+  {% with messages=get_flashed_messages(with_categories=true) %}{% if messages %}<div class="messages">{% for category,message in messages %}<div class="msg {{'ok' if category=='success' else ''}}">{{message}}</div>{% endfor %}</div>{% endif %}{% endwith %}
+  <form method="post" autocomplete="on">
+    <div class="section"><h2 class="section-title">Student Details</h2><div class="grid">
+      <div class="field"><label for="prn">PRN</label><input id="prn" name="prn" value="{{request.form.get('prn','')}}" required></div>
+      <div class="field"><label for="name">Full Name</label><input id="name" name="name" value="{{request.form.get('name','')}}" required></div>
+      <div class="field"><label for="year">Year</label><select id="year" name="year" required><option value="">Select Year</option>{% for y in year_options %}<option value="{{y}}" {% if selected_year==y %}selected{% endif %}>{{y}}</option>{% endfor %}</select></div>
+      <div class="field"><label for="batch">Batch</label><select id="batch" name="batch" required><option value="">Select Batch</option>{% for b in batch_options %}<option value="{{b}}" {% if selected_batch==b %}selected{% endif %}>{{b}}</option>{% endfor %}</select></div>
+    </div></div>
+    <div class="section"><h2 class="section-title">Account & Contact</h2><div class="grid">
+      <div class="field"><label for="username">Username</label><input id="username" name="username" value="{{request.form.get('username','')}}" required></div>
+      <div class="field"><label for="email">Email</label><input id="email" type="email" name="email" value="{{request.form.get('email','')}}" required></div>
+      <div class="field"><label for="mobile">Mobile</label><input id="mobile" name="mobile" value="{{request.form.get('mobile','')}}" required></div>
+    </div></div>
+    <div class="section"><h2 class="section-title">Security & Password</h2><div class="grid">
+      <div class="field full"><label for="security_question">Security Question</label><select id="security_question" name="security_question" required><option value="">Select Question</option>{% for q in security_questions %}<option value="{{q}}" {% if request.form.get('security_question')==q %}selected{% endif %}>{{q}}</option>{% endfor %}</select></div>
+      <div class="field full"><label for="security_answer">Security Answer</label><input id="security_answer" name="security_answer" required></div>
+      <div class="field"><label for="password">Password</label><input id="password" type="password" name="password" required></div>
+      <div class="field"><label for="confirm_password">Confirm Password</label><input id="confirm_password" type="password" name="confirm_password" required></div>
+    </div></div>
+    <div class="actions"><button class="btn" type="submit">Create Student Registration</button><div class="login-note">After successful registration, you can log in with your account credentials.</div></div>
+  </form>
+</div></section></main>
+</body></html>
