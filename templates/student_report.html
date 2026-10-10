@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}My Report - {{ college_name }}<script>
+document.addEventListener('DOMContentLoaded',function(){const sess=document.getElementById('report-session'),sem=document.getElementById('report-semester'),sub=document.getElementById('report-subject');function filter(){if(!sub)return;Array.from(sub.options).forEach(o=>{if(!o.value||o.value==='0'){o.hidden=false;return;}o.hidden=!!(sess.value&&o.dataset.session!==sess.value)||!!(sem.value&&sem.value!=='0'&&o.dataset.semester!==sem.value);});if(sub.selectedOptions[0]&&sub.selectedOptions[0].hidden)sub.value='0';}sess&&sess.addEventListener('change',filter);sem&&sem.addEventListener('change',filter);filter();});
+</script>
+{% endblock %}
+{% block content %}
+<div class="content-wrap">
+    <div class="page-banner">
+        <div class="page-banner-icon">▤</div>
+        <div class="page-banner-copy">
+            <h1>My Attendance Report</h1>
+            <p>View your complete subject-wise attendance and download your report as PDF.</p>
+        </div>
+        <div class="banner-date">
+            <strong>{{ student.year }}</strong>
+            <span>PRN {{ student.prn or '—' }}</span>
+        </div>
+    </div>
+
+    {% if summary is defined %}
+    <div class="stat-grid">
+        <div class="stat-card blue">
+            <div class="stat-icon">▣</div>
+            <div><span>Total Classes</span><strong>{{ total }}</strong><small>Attendance marks</small></div>
+        </div>
+        <div class="stat-card green">
+            <div class="stat-icon">✓</div>
+            <div><span>Present</span><strong>{{ present }}</strong><small>Present marks</small></div>
+        </div>
+        <div class="stat-card orange">
+            <div class="stat-icon">×</div>
+            <div><span>Absent</span><strong>{{ absent }}</strong><small>Absent marks</small></div>
+        </div>
+        <div class="stat-card purple">
+            <div class="stat-icon">%</div>
+            <div><span>Attendance</span><strong>{{ overall }}%</strong><small>Overall</small></div>
+        </div>
+    </div>
+    {% endif %}
+
+    <section class="panel" style="margin-top:16px">
+        <div class="panel-head">
+            <div>
+                <h2>Report Filter</h2>
+                <p class="muted">Select a session and subject to view only that subject's attendance and history.</p>
+            </div>
+        </div>
+        <form method="get" action="{{ url_for('student_my_report') }}" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:end">
+            <div>
+                <label for="report-semester">Semester</label>
+                <select id="report-semester" name="semester" class="form-control"><option value="0">All Semesters</option>{% for sem in semesters %}<option value="{{sem}}" {% if selected_semester==sem %}selected{% endif %}>Semester {{sem}}</option>{% endfor %}</select>
+            </div>
+            <div>
+                <label for="report-session">Session</label>
+                <select id="report-session" name="session" class="form-control">
+                    <option value="">All Sessions</option>
+                    <option value="Lecture" {% if selected_session == 'Lecture' %}selected{% endif %}>Lecture</option>
+                    <option value="Practical" {% if selected_session == 'Practical' %}selected{% endif %}>Practical</option>
+                </select>
+            </div>
+            <div>
+                <label for="report-subject">Subject</label>
+                <select id="report-subject" name="subject_id" class="form-control">
+                    <option value="0">All Subjects</option>
+                    {% for sub in subjects %}
+                    <option value="{{ sub.id }}" data-session="{{sub.session_type}}" data-semester="{{sub.semester}}" {% if selected_subject == sub.id %}selected{% endif %}>{{ sub.code }} — {{ sub.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="display:flex;gap:8px">
+                <button type="submit" class="button primary">Apply Filter</button>
+                <a href="{{ url_for('student_my_report') }}" class="button secondary">Reset</a>
+            </div>
+        </form>
+    </section>
+
+    <section class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>Student Details</h2>
+                <p class="muted">Your registered academic information.</p>
+            </div>
+            {% if summary is defined %}<a class="button primary" href="{{ url_for('student_my_report_pdf', session=selected_session, semester=selected_semester, subject_id=selected_subject) }}">↓ Export PDF</a>{% endif %}
+        </div>
+        <div class="profile-grid">
+            <div class="profile-item"><span>Name</span><b>{{ student.name }}</b></div>
+            <div class="profile-item"><span>PRN</span><b>{{ student.prn or '—' }}</b></div>
+            <div class="profile-item"><span>Course</span><b>{{ student.course or 'B.Pharm' }}</b></div>
+            <div class="profile-item"><span>Year</span><b>{{ student.year }}</b></div>
+        </div>
+    </section>
+
+    <section class="panel" style="margin-top:16px">
+        <div class="panel-head">
+            <div>
+                <h2>Subject-wise Attendance</h2>
+                <p class="muted">{% if selected_subject_name %}Showing {{ selected_subject_name }}{% else %}Attendance summary for your current academic year.{% endif %}{% if selected_session %} — {{ selected_session }}{% endif %}</p>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="modern-table">
+                <thead><tr><th>Subject</th><th>Total</th><th>Present</th><th>Absent</th><th>Attendance %</th></tr></thead>
+                <tbody>
+                {% set report_rows = summary if summary is defined else rows %}
+                {% for r in report_rows %}
+                    <tr>
+                        <td><strong>{{ r.code }} — {{ r.subject_name }}</strong></td>
+                        <td>{{ r.total }}</td>
+                        <td>{{ r.present }}</td>
+                        <td>{{ r.absent }}</td>
+                        <td><strong>{{ r.pct }}%</strong></td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="5" class="muted">No subject attendance found.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    {% if history is defined %}
+    <section class="panel" style="margin-top:16px">
+        <div class="panel-head">
+            <div>
+                <h2>Attendance History</h2>
+                <p class="muted">{% if selected_subject_name %}History for {{ selected_subject_name }}{% else %}All attendance marks recorded for your account.{% endif %}{% if selected_session %} — {{ selected_session }}{% endif %}</p>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="modern-table">
+                <thead><tr><th>Date</th><th>Subject</th><th>Lecture</th><th>Time</th><th>Session</th><th>Status</th></tr></thead>
+                <tbody>
+                {% for r in history %}
+                    <tr>
+                        <td>{{ r.attendance_date }}</td>
+                        <td><strong>{{ r.code }} — {{ r.subject_name }}</strong></td>
+                        <td>L{{ r.lecture_no }}</td>
+                        <td>{{ r.lecture_time or '—' }}</td>
+                        <td>{{ r.session_type or 'Lecture' }}</td>
+                        <td><span class="status-badge {% if r.status == 'Present' %}present{% else %}absent{% endif %}">{{ r.status }}</span></td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="6" class="muted">No attendance history found.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+</div>
+<script>
+document.addEventListener('DOMContentLoaded',function(){const sess=document.getElementById('report-session'),sem=document.getElementById('report-semester'),sub=document.getElementById('report-subject');function filter(){if(!sub)return;Array.from(sub.options).forEach(o=>{if(!o.value||o.value==='0'){o.hidden=false;return;}o.hidden=!!(sess.value&&o.dataset.session!==sess.value)||!!(sem.value&&sem.value!=='0'&&o.dataset.semester!==sem.value);});if(sub.selectedOptions[0]&&sub.selectedOptions[0].hidden)sub.value='0';}sess&&sess.addEventListener('change',filter);sem&&sem.addEventListener('change',filter);filter();});
+</script>
+{% endblock %}
