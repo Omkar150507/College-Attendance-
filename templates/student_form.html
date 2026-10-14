@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% block content %}
+<div class="content-wrap"><div class="page-banner"><div class="page-banner-icon">👤</div><div class="page-banner-copy"><h1>{{title}}</h1><p>Add or update student details and assign the practical batch.</p></div></div>
+<div class="panel" style="max-width:760px;margin:auto"><form method="post" class="form-grid"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<div><label>PRN</label><input name="prn" value="{{student.prn if student else ''}}" required></div>
+<div><label>Student Name</label><input name="name" value="{{student.name if student else ''}}" required></div>
+<div><label>Course</label><input name="course" value="{{student.course if student else 'B.Pharm'}}" readonly></div>
+<div><label>Year</label><select name="year" required>{% for y in year_options %}<option value="{{y}}" {% if student and student.year==y %}selected{% elif not student and y=='1st Year' %}selected{% endif %}>{{y}}</option>{% endfor %}</select></div>
+<div><label>Semester</label><select name="semester" id="semester" required>{% for y, sems in semesters_by_year.items() %}{% for sem in sems %}<option value="{{sem}}" data-year="{{y}}" {% if student and student.semester|int==sem %}selected{% elif not student and y=='1st Year' and sem==1 %}selected{% endif %}>Semester {{sem}}</option>{% endfor %}{% endfor %}</select></div>
+<div><label>Practical Batch</label><select name="batch"><option value="">Not Assigned</option>{% for b in batch_options %}<option value="{{b}}" {% if student and student.batch==b %}selected{% endif %}>{{b}}</option>{% endfor %}</select><small class="muted">Batch is used only when Practical is selected.</small></div>
+{% if student %}
+<div style="grid-column:1/-1;margin-top:8px;padding:18px;border:1px solid #dce8f2;border-radius:14px;background:#f8fbfe">
+  <h2 style="margin:0 0 5px;color:#173f61;font-size:16px">Registration & Contact Details</h2>
+  <p style="margin:0 0 14px;color:#708398;font-size:12px">Update the student's registration details below. Password, security question and security answer are intentionally hidden.</p>
+  {% if account %}<div class="form-grid">
+    <div><label>Username</label><input name="username" value="{{request.form.get('username', account.username or '')}}" required autocomplete="off"></div>
+    <div><label>Email</label><input type="email" name="email" value="{{request.form.get('email', account.email or '')}}" required autocomplete="off"></div>
+    <div><label>Mobile Number</label><input name="mobile" value="{{request.form.get('mobile', account.mobile or '')}}" required autocomplete="off"></div>
+  </div>{% else %}<p style="margin:0;color:#687d90;font-size:13px">This student has not created a login account yet. Registration and contact details will appear here after the student submits registration.</p>{% endif %}
+</div>
+{% endif %}
+<div style="grid-column:1/-1;display:flex;gap:10px;justify-content:flex-end"><a class="button" href="{{url_for('students')}}">Cancel</a><button class="primary">Save Student</button></div>
+</form></div></div>
+<script>
+const yearSelect=document.querySelector('select[name="year"]'), semSelect=document.getElementById('semester');
+function syncSemesters(){const opts=[...semSelect.options];let first=null;opts.forEach(o=>{o.hidden=o.dataset.year!==yearSelect.value;if(!o.hidden&&!first)first=o;});if(semSelect.selectedOptions.length && semSelect.selectedOptions[0].hidden && first)semSelect.value=first.value;}
+yearSelect.addEventListener('change',syncSemesters);syncSemesters();
+</script>{% endblock %}
