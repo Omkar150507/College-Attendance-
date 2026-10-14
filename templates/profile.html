@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}My Profile{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>My Profile</h1><p>Update your account details.</p></div>
+</div>
+<div class="panel">
+  <form method="post" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <label for="full_name">Full name</label>
+      <input id="full_name" name="full_name" value="{{ user['full_name'] or '' }}" required>
+    </div>
+    <div>
+      <label for="mobile">Mobile number</label>
+      <input id="mobile" name="mobile" value="{{ user['mobile'] or '' }}">
+    </div>
+    <div>
+      <label for="new_password">New password (leave blank to keep current)</label>
+      <input id="new_password" type="password" name="new_password" autocomplete="new-password">
+    </div>
+    <div><button class="primary" type="submit">Save Profile</button></div>
+  </form>
+</div>
+{% endblock %}
