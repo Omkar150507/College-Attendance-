@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}My Report - {{ college_name }}{% endblock %}
+{% block content %}
+<style>
+.my-report-page{max-width:1500px;margin:0 auto;color:#173f63}
+.my-report-page .page-banner{border-radius:14px}
+.my-report-page .report-panel{border:1px solid #cfe0ee;border-radius:14px;box-shadow:0 4px 16px rgba(20,75,110,.06);overflow:hidden;padding:0}
+.my-report-page .report-panel .panel-head{padding:18px 22px;margin:0;border-bottom:1px solid #dbe8f1;background:linear-gradient(100deg,#fff,#f7fbff)}
+.my-report-page .report-panel .panel-head h2{font-size:18px;color:#12477b}
+.my-report-page .report-panel .panel-head p{font-size:11px;line-height:1.5}
+.my-report-page .report-filter-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;align-items:end;padding:20px 22px}
+.my-report-page .report-field label{display:block;font-size:11px;font-weight:700;color:#536f84;margin-bottom:6px}
+.my-report-page .report-field select,.my-report-page .report-field .form-control{width:100%;height:42px;display:flex;align-items:center;border:1px solid #cbdde9;border-radius:8px;background:#fff;padding:0 11px;color:#294c65;font-size:13px;box-sizing:border-box}
+.my-report-page .report-field select:focus{outline:0;border-color:#087fe5;box-shadow:0 0 0 3px rgba(8,127,229,.10)}
+.my-report-page .semester-highlight{height:42px;display:flex;align-items:center;gap:9px;padding:0 12px;border:1px solid #c5e0f7;border-radius:9px;background:linear-gradient(135deg,#eaf5ff,#f6fbff);color:#0c4c87;font-size:13px;font-weight:800;box-shadow:inset 3px 0 0 #087fe5}
+.my-report-page .semester-highlight .semester-icon{width:25px;height:25px;display:grid;place-items:center;border-radius:7px;background:#087fe5;color:#fff;font-size:12px}
+.my-report-page .report-filter-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.my-report-page .report-filter-actions .button{min-height:40px;border-radius:8px;font-size:11px;padding:0 16px}
+.my-report-page .report-filter-actions .primary{background:#087fe5;border-color:#087fe5;color:#fff;box-shadow:0 5px 12px rgba(8,127,229,.15)}
+.my-report-page .report-filter-actions .secondary{background:#fff;border:1px solid #c9dce9;color:#41627a}
+.my-report-page .details-panel{padding:0}
+.my-report-page .details-panel .panel-head{border-bottom:1px solid #e4edf5}
+.my-report-page .profile-grid{padding:0 22px 22px;gap:12px}
+.my-report-page .profile-item{border:1px solid #d6e5f0;border-radius:10px;background:linear-gradient(135deg,#f8fbfe,#f2f8fd);padding:13px 14px}
+.my-report-page .profile-item span{font-size:10px;text-transform:uppercase;letter-spacing:.3px}
+.my-report-page .profile-item b{font-size:13px;overflow-wrap:anywhere}
+.my-report-page .table-wrap{padding:0 18px 18px}
+.my-report-page .modern-table{font-size:12px}
+.my-report-page .modern-table th{font-size:10px;padding:12px}
+.my-report-page .modern-table td{padding:12px}
+@media(max-width:950px){.my-report-page .report-filter-form{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.my-report-page .report-filter-form{grid-template-columns:1fr;padding:16px}.my-report-page .report-panel .panel-head{padding:16px}.my-report-page .report-filter-actions{display:grid;grid-template-columns:1fr 1fr}.my-report-page .report-filter-actions .button{width:100%;padding:0 8px}.my-report-page .profile-grid{grid-template-columns:1fr 1fr;padding:0 14px 16px;gap:8px}.my-report-page .profile-item{padding:11px}.my-report-page .profile-item b{font-size:12px}.my-report-page .table-wrap{padding:0 12px 14px}}
+</style>
+<div class="content-wrap my-report-page">
+    <div class="page-banner">
+        <div class="page-banner-icon">▤</div>
+        <div class="page-banner-copy">
+            <h1>My Attendance Report</h1>
+            <p>View your complete subject-wise attendance and download your report as PDF.</p>
+        </div>
+        <div class="banner-date">
+            <strong>{{ student.year }}</strong>
+            <span>PRN {{ student.prn or '—' }}</span>
+        </div>
+    </div>
+
+    {% if summary is defined %}
+    <div class="stat-grid">
+        <div class="stat-card blue">
+            <div class="stat-icon">▣</div>
+            <div><span>Total Classes</span><strong>{{ total }}</strong><small>Attendance marks</small></div>
+        </div>
+        <div class="stat-card green">
+            <div class="stat-icon">✓</div>
+            <div><span>Present</span><strong>{{ present }}</strong><small>Present marks</small></div>
+        </div>
+        <div class="stat-card orange">
+            <div class="stat-icon">×</div>
+            <div><span>Absent</span><strong>{{ absent }}</strong><small>Absent marks</small></div>
+        </div>
+        <div class="stat-card purple">
+            <div class="stat-icon">%</div>
+            <div><span>Attendance</span><strong>{{ overall }}%</strong><small>Overall</small></div>
+        </div>
+    </div>
+    {% endif %}
+
+    <section class="panel report-panel" style="margin-top:16px">
+        <div class="panel-head">
+            <div>
+                <h2>Report Filter</h2>
+                <p class="muted">Select a session and subject to view only that subject's attendance and history.</p>
+            </div>
+        </div>
+        <form method="get" action="{{ url_for('student_my_report') }}" class="report-filter-form">
+            <div class="report-field">
+                <label>Semester</label>
+                <div class="semester-highlight" aria-readonly="true"><span class="semester-icon">▦</span><span>Semester {{ student.semester }}</span></div>
+            </div>
+            <div class="report-field">
+                <label for="report-session">Session Type</label>
+                <select id="report-session" name="session" class="form-control">
+                    <option value="">All Sessions</option>
+                    <option value="Lecture" {% if selected_session == 'Lecture' %}selected{% endif %}>Lecture</option>
+                    <option value="Practical" {% if selected_session == 'Practical' %}selected{% endif %}>Practical</option>
+                </select>
+            </div>
+            <div class="report-field">
+                <label for="report-subject">Subject</label>
+                <select id="report-subject" name="subject_id" class="form-control">
+                    <option value="0">All Subjects</option>
+                    {% for sub in subjects %}
+                    <option value="{{ sub.id }}" data-session="{{sub.session_type}}" data-semester="{{sub.semester}}" {% if selected_subject == sub.id %}selected{% endif %}>{{ sub.code }} — {{ sub.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="report-filter-actions">
+                <button type="submit" class="button primary">Apply Filter</button>
+                <a href="{{ url_for('student_my_report') }}" class="button secondary">Reset</a>
+            </div>
+        </form>
+    </section>
+
+    <section class="panel report-panel details-panel">
+        <div class="panel-head">
+            <div>
+                <h2>Student Details</h2>
+                <p class="muted">Your registered academic information.</p>
+            </div>
+            {% if summary is defined %}<a class="button primary" href="{{ url_for('student_my_report_pdf', session=selected_session, semester=selected_semester, subject_id=selected_subject) }}">↓ Export PDF</a>{% endif %}
+        </div>
+        <div class="profile-grid">
+            <div class="profile-item"><span>Name</span><b>{{ student.name }}</b></div>
+            <div class="profile-item"><span>PRN</span><b>{{ student.prn or '—' }}</b></div>
+            <div class="profile-item"><span>Course</span><b>{{ student.course or 'B.Pharm' }}</b></div>
+            <div class="profile-item"><span>Year / Semester</span><b>{{ student.year }} (Sem {{ student.semester }})</b></div>
+        </div>
+    </section>
+
+    <section class="panel report-panel" style="margin-top:16px">
+        <div class="panel-head">
+            <div>
+                <h2>Subject-wise Attendance</h2>
+                <p class="muted">{% if selected_subject_name %}Showing {{ selected_subject_name }}{% else %}Attendance summary for your current academic year.{% endif %}{% if selected_session %} — {{ selected_session }}{% endif %}</p>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="modern-table">
+                <thead><tr><th>Subject</th><th>Total</th><th>Present</th><th>Absent</th><th>Attendance %</th></tr></thead>
+                <tbody>
+                {% set report_rows = summary if summary is defined else rows %}
+                {% for r in report_rows %}
+                    <tr>
+                        <td><strong>{{ r.code }} — {{ r.subject_name }}</strong></td>
+                        <td>{{ r.total }}</td>
+                        <td>{{ r.present }}</td>
+                        <td>{{ r.absent }}</td>
+                        <td><strong>{{ r.pct }}%</strong></td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="5" class="muted">No subject attendance found.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    {% if history is defined %}
+    <section class="panel report-panel" style="margin-top:16px">
+        <div class="panel-head">
+            <div>
+                <h2>Attendance History</h2>
+                <p class="muted">{% if selected_subject_name %}History for {{ selected_subject_name }}{% else %}All attendance marks recorded for your account.{% endif %}{% if selected_session %} — {{ selected_session }}{% endif %}</p>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="modern-table">
+                <thead><tr><th>Date</th><th>Subject</th><th>Lecture</th><th>Time</th><th>Session</th><th>Status</th></tr></thead>
+                <tbody>
+                {% for r in history %}
+                    <tr>
+                        <td>{{ r.attendance_date }}</td>
+                        <td><strong>{{ r.code }} — {{ r.subject_name }}</strong></td>
+                        <td>L{{ r.lecture_no }}</td>
+                        <td>{{ r.lecture_time or '—' }}</td>
+                        <td>{{ r.session_type or 'Lecture' }}</td>
+                        <td><span class="status-badge {% if r.status == 'Present' %}present{% else %}absent{% endif %}">{{ r.status }}</span></td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="6" class="muted">No attendance history found.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+</div>
+<script>
+document.addEventListener('DOMContentLoaded',function(){const sess=document.getElementById('report-session'),sub=document.getElementById('report-subject');function filter(){if(!sub)return;Array.from(sub.options).forEach(o=>{if(!o.value||o.value==='0'){o.hidden=false;return;}o.hidden=!!(sess.value&&o.dataset.session!==sess.value);});if(sub.selectedOptions[0]&&sub.selectedOptions[0].hidden)sub.value='0';}sess&&sess.addEventListener('change',filter);filter();});
+</script>
+{% endblock %}
