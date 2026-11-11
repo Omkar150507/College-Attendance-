@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.sr-wrap{max-width:900px;margin:0 auto;padding:8px 0 28px}
+.sr-panel{background:#fff;border:1px solid #e3eaf1;border-radius:18px;box-shadow:0 6px 22px rgba(25,55,85,.07);overflow:hidden;margin-bottom:16px}
+.sr-head{padding:18px 20px;border-bottom:1px solid #edf1f5}
+.sr-head h1{margin:0;font-size:22px;color:#123a5b}
+.sr-head p{margin:6px 0 0;color:#708398;font-size:13px}
+.sr-scroll{overflow-x:auto}
+.sr-table{width:100%;border-collapse:collapse;min-width:480px}
+.sr-table th{background:#f5f8fb;color:#64778b;font-size:12px;text-align:left;padding:12px 14px}
+.sr-table td{padding:12px 14px;border-top:1px solid #edf1f5;font-size:14px;color:#29445c}
+.sr-actions{display:flex;gap:12px;flex-wrap:wrap;padding:18px 20px;border-top:1px solid #edf1f5;background:#f8fafc}
+.sr-btn{border:0;border-radius:10px;padding:11px 18px;font-weight:600;font-size:14px;cursor:pointer;text-decoration:none;display:inline-block;color:#fff}
+.sr-mail{background:#0879d1}.sr-mail:hover{background:#066bb9}
+.sr-wa{background:#25d366}.sr-wa:hover{background:#1ebe5b}
+.sr-off{background:#b8c4cf;cursor:not-allowed}
+.sr-note{padding:0 20px 16px;font-size:12px;color:#8190a0}
+.sr-low{color:#c0392b;font-weight:700}
+</style>
+<div class="sr-wrap">
+  <div class="sr-panel">
+    <div class="sr-head">
+      <h1>Send Attendance Report</h1>
+      <p>{{ student.name }} &middot; Roll No {{ student.roll_no }} &middot; {{ student.year }}</p>
+      <p>Email: <b>{{ email or 'not available' }}</b> &nbsp;|&nbsp; Mobile: <b>{{ mobile or 'not available' }}</b></p>
+    </div>
+    <div class="sr-scroll">
+      <table class="sr-table">
+        <thead><tr><th>Subject</th><th>Present / Total</th><th>%</th></tr></thead>
+        <tbody>
+        {% for r in report %}
+          <tr><td>{{ r.code }} - {{ r.name }}</td><td>{{ r.present }} / {{ r.total }}</td>
+              <td class="{% if r.pct < 75 %}sr-low{% endif %}">{{ '%.1f'|format(r.pct) }}%</td></tr>
+        {% else %}
+          <tr><td colspan="3" style="text-align:center;padding:24px;color:#708398">No attendance records yet.</td></tr>
+        {% endfor %}
+        </tbody>
+        {% if report %}<tfoot><tr><td><b>Overall</b></td><td></td><td><b>{{ '%.1f'|format(overall) }}%</b></td></tr></tfoot>{% endif %}
+      </table>
+    </div>
+    <div class="sr-actions">
+      {% if report and email and email_ready %}
+      <form method="post" action="{{ url_for('send_report_email', student_id=student.id) }}" onsubmit="return confirm('Send this report to {{ email }}?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="sr-btn sr-mail" type="submit">Send Email</button>
+      </form>
+      {% else %}
+      <span class="sr-btn sr-off">Send Email</span>
+      {% endif %}
+      {% if wa_link %}
+      <a class="sr-btn sr-wa" href="{{ wa_link }}" target="_blank" rel="noopener noreferrer">Send on WhatsApp</a>
+      {% else %}
+      <span class="sr-btn sr-off">Send on WhatsApp</span>
+      {% endif %}
+    </div>
+    <div class="sr-note">
+      {% if not email_ready %}Email is not set up yet (BREVO_API_KEY and BREVO_SENDER_EMAIL are missing). {% endif %}
+      WhatsApp opens a ready message; press Send there.
+      {% if session.get('role') == 'teacher' %} Report includes your subjects only.{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
