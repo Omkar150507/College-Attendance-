@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="content-wrap">
+  <div class="panel">
+    <div class="panel-head"><div><h2>Deleted Students</h2>
+      <p class="muted">Deleted students are kept here with their account, attendance and leave records. Restore puts everything back.</p></div></div>
+    <div class="table-wrap"><table class="modern-table">
+      <thead><tr><th>Name</th><th>PRN</th><th>Roll No</th><th>Year</th><th>Deleted On</th><th>Action</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr><td>{{ r.name }}</td><td>{{ r.prn or '-' }}</td><td>{{ r.roll_no }}</td><td>{{ r.year }}</td><td>{{ (r.deleted_at or '')[:16].replace('T',' ') }} UTC</td>
+          <td class="actions">
+            <form method="post" action="{{ url_for('restore_student', archive_id=r.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small primary" type="submit">Restore</button></form>
+            <form method="post" action="{{ url_for('purge_deleted_student', archive_id=r.id) }}" onsubmit="return confirm('Remove this record permanently? It can not be restored after this.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small danger" type="submit">Remove Forever</button></form>
+          </td></tr>
+      {% else %}
+        <tr><td colspan="6" class="muted">No deleted students.</td></tr>
+      {% endfor %}
+      </tbody></table></div>
+  </div>
+</div>
+{% endblock %}

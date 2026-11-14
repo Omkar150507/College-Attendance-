@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block login_content %}
+<style>
+.tf-page{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px 18px;background:linear-gradient(135deg,#f5f9fd,#eaf3fb)}
+.tf-card{width:min(460px,100%);background:#fff;border:1px solid #e2ebf3;border-radius:22px;box-shadow:0 18px 50px rgba(19,61,101,.12);padding:32px}
+.tf-card h1{margin:0 0 6px;color:#123b61;font-size:22px}.tf-card p{margin:0 0 18px;color:#6c7d8d;font-size:14px;line-height:1.5}
+.tf-input{width:100%;box-sizing:border-box;height:50px;border:1px solid #d5e1ea;border-radius:11px;padding:0 14px;font-size:20px;letter-spacing:4px;text-align:center;outline:none}
+.tf-btn{width:100%;height:49px;border:0;border-radius:11px;background:#1386df;color:#fff;font-weight:700;margin-top:16px;cursor:pointer}
+.tf-alert{margin:0 0 14px;padding:12px 14px;border-radius:11px;background:#fff1f3;border:1px solid #f0c9cf;color:#9b4050;font-size:13px}
+.tf-back{display:block;text-align:center;margin-top:16px;color:#42627b;text-decoration:none;font-size:14px}
+</style>
+<div class="tf-page"><section class="tf-card">
+  <h1>2-Step Verification</h1>
+  <p>Open your authenticator app and enter the 6-digit code for {{ college_name }}. You can also use one of your recovery codes.</p>
+  {% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="tf-alert">{{ message }}</div>{% endfor %}{% endwith %}
+  <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input class="tf-input" name="code" required autofocus autocomplete="one-time-code" inputmode="text" placeholder="123456">
+    <button class="tf-btn" type="submit">Verify and Login</button>
+  </form>
+  <a class="tf-back" href="{{ url_for('login') }}">← Back to Login</a>
+</section></div>
+{% endblock %}

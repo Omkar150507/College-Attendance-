@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.sec-wrap{max-width:760px;margin:0 auto;padding:8px 0 28px}
+.sec-box{background:#fff;border:1px solid #e3eaf1;border-radius:16px;box-shadow:0 6px 22px rgba(25,55,85,.07);padding:20px;margin-bottom:16px}
+.sec-box h2{margin:0 0 6px;color:#123a5b;font-size:19px}.sec-box p{color:#64778b;font-size:13px;line-height:1.55;margin:6px 0}
+.sec-badge{display:inline-block;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:700}
+.sec-on{background:#dff8ed;color:#087a53}.sec-off{background:#fff0d7;color:#a96708}
+.sec-input{width:100%;box-sizing:border-box;height:44px;border:1px solid #cfdeeb;border-radius:9px;padding:0 12px;margin-top:8px}
+.sec-btn{border:0;border-radius:9px;padding:11px 18px;font-weight:700;background:#0878ee;color:#fff;cursor:pointer;margin-top:12px}
+.sec-danger{background:#ef4961}
+.sec-codes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0;font-family:monospace;font-size:15px}
+.sec-codes span{background:#f5f8fb;border:1px solid #dbe4ee;border-radius:8px;padding:8px;text-align:center}
+.sec-key{font-family:monospace;word-break:break-all;background:#f5f8fb;border-radius:8px;padding:8px}
+</style>
+<div class="sec-wrap">
+  <div class="sec-box">
+    <h2>2-Step Verification {% if enabled %}<span class="sec-badge sec-on">ON</span>{% else %}<span class="sec-badge sec-off">OFF</span>{% endif %}</h2>
+    <p>With 2-step verification, the admin login needs a 6-digit code from an authenticator app (Google Authenticator, Microsoft Authenticator, Authy) after the password. Even if the password leaks, the account stays safe.</p>
+  </div>
+
+  {% if new_codes %}
+  <div class="sec-box">
+    <h2>Save your recovery codes</h2>
+    <p>Each code works <b>once</b> if you lose your phone. They are shown only now. Write them down and keep them safe.</p>
+    <div class="sec-codes">{% for c in new_codes %}<span>{{ c }}</span>{% endfor %}</div>
+  </div>
+  {% endif %}
+
+  {% if not enabled %}
+    {% if setup_secret %}
+    <div class="sec-box">
+      <h2>Step 2: Scan and confirm</h2>
+      <p>Scan this QR code in your authenticator app{% if not qr_image %} (QR could not be created, use the key below){% endif %}, then enter the 6-digit code it shows.</p>
+      {% if qr_image %}<p><img src="{{ qr_image }}" alt="2-step QR" style="width:200px;height:200px"></p>{% endif %}
+      <p>Or type this key manually:</p><div class="sec-key">{{ setup_secret }}</div>
+      <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="enable">
+        <input class="sec-input" name="code" required inputmode="numeric" maxlength="6" placeholder="6-digit code">
+        <button class="sec-btn" type="submit">Turn On</button>
+      </form>
+    </div>
+    {% else %}
+    <div class="sec-box">
+      <h2>Step 1: Start setup</h2>
+      <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="start">
+        <button class="sec-btn" type="submit">Set Up 2-Step Verification</button></form>
+    </div>
+    {% endif %}
+  {% else %}
+  <div class="sec-box">
+    <h2>New recovery codes</h2>
+    <p>This replaces your old recovery codes. Enter your password and a current code.</p>
+    <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="regen">
+      <input class="sec-input" type="password" name="password" required placeholder="Your password">
+      <input class="sec-input" name="code" required inputmode="numeric" maxlength="6" placeholder="6-digit code">
+      <button class="sec-btn" type="submit">Create New Recovery Codes</button></form>
+  </div>
+  <div class="sec-box">
+    <h2>Turn off 2-step verification</h2>
+    <form method="post" onsubmit="return confirm('Turn off 2-step verification?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="disable">
+      <input class="sec-input" type="password" name="password" required placeholder="Your password">
+      <input class="sec-input" name="code" required inputmode="numeric" maxlength="6" placeholder="6-digit code">
+      <button class="sec-btn sec-danger" type="submit">Turn Off</button></form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
