@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.rs-wrap{max-width:640px;margin:0 auto;padding:8px 0 28px}
+.rs-box{background:#fff;border:1px solid #e3eaf1;border-radius:16px;box-shadow:0 6px 22px rgba(25,55,85,.07);padding:20px;margin-bottom:16px}
+.rs-box h2{margin:0 0 8px;color:#123a5b;font-size:19px}.rs-box p,.rs-box li{color:#64778b;font-size:13px;line-height:1.6}
+.rs-input{width:100%;box-sizing:border-box;min-height:44px;border:1px solid #cfdeeb;border-radius:9px;padding:10px 12px;margin:6px 0 12px;background:#fff}
+.rs-btn{border:0;border-radius:9px;padding:12px 20px;font-weight:700;background:#ef4961;color:#fff;cursor:pointer}
+.rs-ok{display:inline-block;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:700;background:#dff8ed;color:#087a53}
+.rs-no{display:inline-block;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:700;background:#ffe4e9;color:#b4233b}
+</style>
+<div class="rs-wrap"><div class="rs-box">
+  <h2>Restore Backup {% if fresh %}<span class="rs-ok">Database is empty</span>{% else %}<span class="rs-no">Database has data</span>{% endif %}</h2>
+  <p>Use this once, on a new empty database (for example after moving to Neon), to bring back everything from a backup file: students, accounts, subjects, timetable and attendance.</p>
+  <ul><li>The backup must be the <b>.zip</b> that contains <code>attendance_backup.json</code>.</li>
+  <li>Restore is blocked when students, subjects or attendance already exist, so live data can never be erased.</li>
+  <li>After restoring you are logged out. Log in with the <b>admin username and password from the backup</b>, not the one you used to open this page.</li></ul>
+  {% if fresh %}
+  <form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Backup file (.zip)</label><input class="rs-input" type="file" name="backup" accept=".zip" required>
+    <label>Your current admin password</label><input class="rs-input" type="password" name="password" required autocomplete="current-password">
+    <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;color:#445b73;margin-bottom:14px"><input type="checkbox" name="confirm" value="yes" required style="margin-top:3px"> I understand this replaces the content of this database with the backup.</label>
+    <button class="rs-btn" type="submit">Restore Now</button>
+  </form>
+  {% endif %}
+</div></div>
+{% endblock %}
