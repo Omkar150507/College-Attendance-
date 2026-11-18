@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.em-wrap{max-width:980px;margin:0 auto;padding:8px 0 28px}
+.em-box{background:#fff;border:1px solid #e3eaf1;border-radius:16px;box-shadow:0 6px 22px rgba(25,55,85,.07);margin-bottom:16px;overflow:hidden}
+.em-head{padding:18px 20px;border-bottom:1px solid #edf1f5}.em-head h1{margin:0;font-size:22px;color:#123a5b}.em-head p{margin:6px 0 0;color:#64778b;font-size:13px;line-height:1.55}
+.em-tabs{display:flex;gap:8px;padding:12px 20px;background:#f8fafc;border-bottom:1px solid #edf1f5;flex-wrap:wrap}
+.em-tab{padding:10px 16px;border-radius:10px;border:1px solid #d5e1ea;background:#fff;color:#173f63;text-decoration:none;font-weight:600;font-size:14px}
+.em-tab.on{background:#073b70;color:#fff;border-color:#073b70}
+.em-warn{margin:14px 20px 0;padding:12px 14px;border-radius:10px;background:#fff0d7;color:#8a5200;font-size:13px}
+.em-scroll{overflow-x:auto}.em-table{width:100%;border-collapse:collapse;min-width:680px}
+.em-table th{background:#f5f8fb;color:#64778b;font-size:12px;text-align:left;padding:11px 12px}
+.em-table td{padding:11px 12px;border-top:1px solid #edf1f5;font-size:14px;color:#29445c}
+.em-low{color:#b4233b;font-weight:700}.em-muted{color:#8190a0;font-size:12px}
+.em-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:16px 20px;border-top:1px solid #edf1f5;background:#f8fafc}
+.em-btn{border:0;border-radius:10px;padding:12px 20px;font-weight:700;background:#0878ee;color:#fff;cursor:pointer;font-size:14px}
+.em-btn[disabled]{background:#b8c4cf;cursor:not-allowed}
+.em-pre{white-space:pre-wrap;font-family:Arial,sans-serif;font-size:13px;line-height:1.55;color:#29445c;padding:16px 20px;margin:0}
+.em-chk{width:20px;height:20px}
+</style>
+<div class="em-wrap">
+  <div class="em-box">
+    <div class="em-head"><h1>Send Emails</h1>
+      <p>Choose who gets an email, then press Send. Nothing is sent automatically. Emails go from your Brevo sender; each student gets one email with their own numbers.</p></div>
+    <div class="em-tabs">
+      <a class="em-tab {% if kind == 'weekly' %}on{% endif %}" href="{{ url_for('send_emails', kind='weekly') }}">Weekly report (with PDF)</a>
+      <a class="em-tab {% if kind == 'low' %}on{% endif %}" href="{{ url_for('send_emails', kind='low') }}">Low attendance alert (below {{ '%.0f'|format(threshold) }}%)</a>
+    </div>
+    {% if not email_ready %}<div class="em-warn">Email is not set up yet. Add <b>BREVO_API_KEY</b> and <b>BREVO_SENDER_EMAIL</b> in Render &gt; Environment. You can still look at this page.</div>{% endif %}
+    <form method="post" id="emailForm"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="kind" value="{{ kind }}">
+      <div class="em-scroll"><table class="em-table">
+        <thead><tr><th><input class="em-chk" type="checkbox" id="all" aria-label="Select all"></th><th>Roll No</th><th>Name</th><th>Year</th><th>Attendance</th><th>Email</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for r in rows %}
+          <tr>
+            <td>{% if r.can_send %}<input class="em-chk pick" type="checkbox" name="student_id" value="{{ r.id }}" {% if r.preselect %}checked{% endif %} aria-label="Send to {{ r.name }}">{% endif %}</td>
+            <td>{{ r.roll_no }}</td><td>{{ r.name }}</td><td>{{ r.year }}</td>
+            <td class="{% if r.total and r.pct < threshold %}em-low{% endif %}">{% if r.total %}{{ '%.1f'|format(r.pct) }}%{% else %}-{% endif %}</td>
+            <td>{{ r.email or '-' }}</td><td class="{% if not r.can_send %}em-muted{% endif %}">{{ r.status }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" style="text-align:center;padding:24px;color:#64778b">{% if kind == 'low' %}No student is below the attendance limit.{% else %}No students found.{% endif %}</td></tr>
+        {% endfor %}
+        </tbody></table></div>
+      <div class="em-actions">
+        <button class="em-btn" type="submit" id="sendBtn" {% if not email_ready %}disabled{% endif %} onclick="return confirm('Send these emails now?')">Send to 0 students</button>
+        <span class="em-muted">Up to {{ batch_limit }} emails are sent per click. Students who already got this email in the last {{ resend_days }} days are not ticked.</span>
+      </div>
+    </form>
+  </div>
+  {% if sample %}
+  <div class="em-box"><div class="em-head"><h1 style="font-size:18px">Sample email</h1><p>This is how the first student in the list will see it. Every student gets their own numbers.</p></div>
+    <div class="em-actions" style="background:#fff"><b>Subject:</b> {{ sample[0] }}</div>
+    <pre class="em-pre">{{ sample[1] }}</pre></div>
+  {% endif %}
+</div>
+<script>
+(function(){var all=document.getElementById('all'),btn=document.getElementById('sendBtn');
+function picks(){return Array.prototype.slice.call(document.querySelectorAll('.pick'));}
+function upd(){var n=picks().filter(function(c){return c.checked;}).length;btn.firstChild.nodeValue='Send to '+n+' student'+(n===1?'':'s');if(!btn.hasAttribute('data-off')){btn.disabled=(n===0)||{{ 'true' if not email_ready else 'false' }};}}
+all.addEventListener('change',function(){picks().forEach(function(c){c.checked=all.checked;});upd();});
+picks().forEach(function(c){c.addEventListener('change',upd);});upd();})();
+</script>
+{% endblock %}
