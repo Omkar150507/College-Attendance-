@@ -38,7 +38,7 @@
 </style>
 
 <div class="page-banner">
-  <div class="page-banner-icon">▦</div>
+  <div class="page-banner-icon">{{ icon('cal', 26) }}</div>
   <div class="page-banner-copy"><h1>QR Attendance</h1><p>Create attendance QR in the same simple flow as Take Attendance.</p></div>
 </div>
 
@@ -74,7 +74,7 @@
       <div><label>Teacher Status</label><select name="teacher_status" id="teacher-status" onchange="toggleConducted(this)"><option value="Scheduled teacher present" {% if teacher_status=='Scheduled teacher present' %}selected{% endif %}>Teacher Present</option><option value="Scheduled teacher absent - substitute teacher" {% if teacher_status=='Scheduled teacher absent - substitute teacher' %}selected{% endif %}>Teacher Absent</option><option value="Another teacher conducted the session" {% if teacher_status=='Another teacher conducted the session' %}selected{% endif %}>Another Teacher Conducted</option></select></div>
       <div id="conducted-wrap" style="{% if teacher_status=='Scheduled teacher present' %}display:none{% endif %}"><label>Actual / Conducted By Teacher</label><select name="conducted_by"><option value="">Select teacher</option>{% for t in teachers %}<option value="{{t.id}}" {% if conducted_by==t.id %}selected{% endif %}>{{t.name}}</option>{% endfor %}</select></div>
     </div>
-    <div class="qr-actions"><button class="primary" type="submit">▦ Create QR</button></div>
+    <div class="qr-actions"><button class="primary" type="submit">{{ icon('qr', 16) }} Create QR</button></div>
   </form>
 </div>
 {% endif %}

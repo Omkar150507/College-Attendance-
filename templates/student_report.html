@@ -33,7 +33,7 @@
 </style>
 <div class="content-wrap my-report-page">
     <div class="page-banner">
-        <div class="page-banner-icon">▤</div>
+        <div class="page-banner-icon">{{ icon('chart', 26) }}</div>
         <div class="page-banner-copy">
             <h1>My Attendance Report</h1>
             <p>View your complete subject-wise attendance and download your report as PDF.</p>
@@ -47,19 +47,19 @@
     {% if summary is defined %}
     <div class="stat-grid">
         <div class="stat-card blue">
-            <div class="stat-icon">▣</div>
+            <div class="stat-icon">{{ icon('cal', 26) }}</div>
             <div><span>Total Classes</span><strong>{{ total }}</strong><small>Attendance marks</small></div>
         </div>
         <div class="stat-card green">
-            <div class="stat-icon">✓</div>
+            <div class="stat-icon">{{ icon('check', 26) }}</div>
             <div><span>Present</span><strong>{{ present }}</strong><small>Present marks</small></div>
         </div>
         <div class="stat-card orange">
-            <div class="stat-icon">×</div>
+            <div class="stat-icon">{{ icon('x', 26) }}</div>
             <div><span>Absent</span><strong>{{ absent }}</strong><small>Absent marks</small></div>
         </div>
         <div class="stat-card purple">
-            <div class="stat-icon">%</div>
+            <div class="stat-icon">{{ icon('percent', 26) }}</div>
             <div><span>Attendance</span><strong>{{ overall }}%</strong><small>Overall</small></div>
         </div>
     </div>
@@ -75,7 +75,7 @@
         <form method="get" action="{{ url_for('student_my_report') }}" class="report-filter-form">
             <div class="report-field">
                 <label>Semester</label>
-                <div class="semester-highlight" aria-readonly="true"><span class="semester-icon">▦</span><span>Semester {{ student.semester }}</span></div>
+                <div class="semester-highlight" aria-readonly="true"><span class="semester-icon">{{ icon('cal', 18) }}</span><span>Semester {{ student.semester }}</span></div>
             </div>
             <div class="report-field">
                 <label for="report-session">Session Type</label>
@@ -107,7 +107,7 @@
                 <h2>Student Details</h2>
                 <p class="muted">Your registered academic information.</p>
             </div>
-            {% if summary is defined %}<a class="button primary" href="{{ url_for('student_my_report_pdf', session=selected_session, semester=selected_semester, subject_id=selected_subject) }}">↓ Export PDF</a>{% endif %}
+            {% if summary is defined %}<a class="button primary" href="{{ url_for('student_my_report_pdf', session=selected_session, semester=selected_semester, subject_id=selected_subject) }}">{{ icon('download', 16) }} Export PDF</a>{% endif %}
         </div>
         <div class="profile-grid">
             <div class="profile-item"><span>Name</span><b>{{ student.name }}</b></div>

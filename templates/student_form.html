@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}
-<div class="content-wrap"><div class="page-banner"><div class="page-banner-icon">👤</div><div class="page-banner-copy"><h1>{{title}}</h1><p>Add or update student details and assign the practical batch.</p></div></div>
+<div class="content-wrap"><div class="page-banner"><div class="page-banner-icon">{{ icon('user', 26) }}</div><div class="page-banner-copy"><h1>{{title}}</h1><p>Add or update student details and assign the practical batch.</p></div></div>
 <div class="panel" style="max-width:760px;margin:auto"><form method="post" class="form-grid"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <div><label>PRN</label><input name="prn" value="{{student.prn if student else ''}}" required></div>
 <div><label>Student Name</label><input name="name" value="{{student.name if student else ''}}" required></div>

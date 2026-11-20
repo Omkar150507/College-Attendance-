@@ -1,8 +1,32 @@
-{% extends "base.html" %}{% block content %}<div class="content-wrap">
-<div class="page-banner"><div class="page-banner-icon">♙</div><div class="page-banner-copy"><h1>Student Dashboard</h1><p>Welcome back, {{ student.name }}. Check your attendance for any date.</p></div><div class="banner-date"><strong>{{ student.year }} (Sem {{ student.semester }})</strong><span>PRN {{ student.prn or '—' }}</span></div></div>
-<div class="panel" style="margin-bottom:16px"><div class="panel-head"><div><h2>QR Attendance</h2><p class="muted">Scan your teacher's live QR code with your phone camera. A valid scan marks you Present automatically.</p></div><a class="button primary" href="{{ url_for('student_qr_scanner') }}">▣ Scan QR Attendance</a></div></div>
-<div class="stat-grid"><div class="stat-card blue"><div class="stat-icon">▣</div><div><span>Total Classes</span><strong>{{ history|length }}</strong><small>Displayed history</small></div></div><div class="stat-card green"><div class="stat-icon">✓</div><div><span>Present</span><strong>{{ summary|sum(attribute='present') }}</strong><small>Attendance marks</small></div></div><div class="stat-card orange"><div class="stat-icon">×</div><div><span>Absent</span><strong>{{ summary|sum(attribute='absent') }}</strong><small>Attendance marks</small></div></div><div class="stat-card purple"><div class="stat-icon">%</div><div><span>Attendance %</span><strong>{{ overall }}%</strong><small>Overall</small></div></div></div>
-<div class="two-col"><section class="panel"><div class="panel-head"><div><h2>Lecture</h2><p class="muted">Lecture subject-wise attendance.</p></div></div><div class="progress-list">{% for r in summary if r.session_type == 'Lecture' %}<div><div class="progress-head"><strong>{{r.code}} — {{r.subject_name}}</strong><b>{{r.pct}}%</b></div><div class="progress"><i style="width:{{r.pct}}%"></i></div><small class="muted">{{r.present}} present · {{r.absent}} absent · {{r.total}} total</small></div>{% else %}<p class="muted">No lecture subject attendance found.</p>{% endfor %}</div></section>
-<section class="panel"><div class="panel-head"><div><h2>Practical</h2><p class="muted">Practical subject-wise attendance.</p></div></div><div class="progress-list">{% for r in summary if r.session_type == 'Practical' %}<div><div class="progress-head"><strong>{{r.code}} — {{r.subject_name}}</strong><b>{{r.pct}}%</b></div><div class="progress"><i style="width:{{r.pct}}%"></i></div><small class="muted">{{r.present}} present · {{r.absent}} absent · {{r.total}} total</small></div>{% else %}<p class="muted">No practical subject attendance found.</p>{% endfor %}</div></section></div>
+{% extends "base.html" %}{% block content %}
+{% macro subject_card(r) %}{% set low = r.total and r.pct < threshold %}
+<article class="sd-subject">
+<div class="sd-subject-top"><div><div class="sd-code">{{ r.code }}</div><div class="sd-name">{{ r.subject_name }}</div></div><div class="sd-pct {{ 'low' if low else 'ok' }}">{{ r.pct }}%</div></div>
+<div class="sd-bar" role="img" aria-label="{{ r.pct }} percent present, limit {{ '%.0f'|format(threshold) }} percent"><i class="{{ 'low' if low else '' }}" style="width:{{ r.pct }}%"></i><b style="left:{{ threshold }}%"></b></div>
+<div class="sd-subject-foot">{% if low %}<span class="sd-chip bad">{{ icon('x', 12) }}Below {{ '%.0f'|format(threshold) }}%</span>{% else %}<span>{{ r.present }} present &middot; {{ r.absent }} absent</span>{% endif %}<span>{{ r.total }} lectures</span></div>
+</article>{% endmacro %}
+{% set tot = summary|sum(attribute='total') %}{% set pres = summary|sum(attribute='present') %}{% set abs_ = summary|sum(attribute='absent') %}
+{% set pct = ((pres / tot * 100)|round(1)) if tot else 0 %}
+<div class="content-wrap sd">
+<header class="sd-head"><div><span class="sd-hello">Welcome back</span><h1>{{ student.name }}</h1><p>{{ student.year }} (Sem {{ student.semester }}) &middot; PRN {{ student.prn or '—' }}</p></div></header>
+<section class="sd-hero" aria-label="Overall attendance">
+<div class="sd-hero-main">
+<svg class="sd-ring" width="104" height="104" viewBox="0 0 96 96" role="img" aria-label="{{ pct }} percent attendance, limit {{ '%.0f'|format(threshold) }} percent">
+<circle cx="48" cy="48" r="40" fill="none" stroke="#2a5d94" stroke-width="10"/>
+<circle cx="48" cy="48" r="40" fill="none" stroke="{{ '#7fd9b0' if (not tot or pct >= threshold) else '#ffb3be' }}" stroke-width="10" stroke-linecap="round" stroke-dasharray="251.3" stroke-dashoffset="{{ (251.3 * (1 - pct / 100))|round(1) }}" transform="rotate(-90 48 48)"/>
+<line x1="48" y1="1" x2="48" y2="15" stroke="#fff" stroke-width="3" transform="rotate({{ (threshold * 3.6)|round(1) }} 48 48)"/>
+<text x="48" y="55" text-anchor="middle" font-size="20" font-weight="700" fill="#fff" font-family="Inter,Arial,sans-serif">{{ pct|round|int }}%</text></svg>
+<div class="sd-hero-copy"><div class="sd-hero-label">Overall attendance</div>
+{% if not tot %}<span class="sd-chip neutral">No attendance yet</span>
+{% elif pct >= threshold %}<span class="sd-chip good">{{ icon('check', 14) }}Above the {{ '%.0f'|format(threshold) }}% limit</span>
+{% else %}<span class="sd-chip bad">{{ icon('x', 14) }}Below the {{ '%.0f'|format(threshold) }}% limit</span>{% endif %}
+<div class="sd-hero-note">The white tick on the ring is the {{ '%.0f'|format(threshold) }}% limit</div></div></div>
+<div class="sd-stats"><div><b>{{ tot }}</b><span>Total</span></div><div><b>{{ pres }}</b><span>Present</span></div><div><b>{{ abs_ }}</b><span>Absent</span></div></div>
+</section>
+<a class="sd-scan" href="{{ url_for('student_qr_scanner') }}">{{ icon('qr', 24) }}Scan QR to mark attendance</a>
+<div class="two-col sd-cols">
+<section class="sd-group"><h2>Lecture</h2>{% for r in summary if r.session_type == 'Lecture' %}{{ subject_card(r) }}{% else %}<p class="muted">No lecture subject attendance found.</p>{% endfor %}</section>
+<section class="sd-group"><h2>Practical</h2>{% for r in summary if r.session_type == 'Practical' %}{{ subject_card(r) }}{% else %}<p class="muted">No practical subject attendance found.</p>{% endfor %}</section>
+</div>
 <div class="panel" id="history"><div class="panel-head"><div><h2>Attendance History</h2><p class="muted">Filter your attendance by date or subject.</p></div></div><form method="get" class="filters"><div><label>Date</label><input type="date" name="date" value="{{selected_date}}"></div><div><label>Subject</label><select name="subject"><option value="">All Subjects</option>{% for sub in subjects %}<option value="{{sub.id}}" {% if selected_subject|string==sub.id|string %}selected{% endif %}>{{sub.code}} — {{sub.name}} (Sem {{sub.semester}} · {{sub.session_type}})</option>{% endfor %}</select></div><div><button class="primary">Apply Filter</button></div><div><a class="button" href="{{url_for('student_dashboard')}}">Clear</a></div></form><div class="table-wrap" style="margin-top:14px"><table class="modern-table"><thead><tr><th>Date</th><th>Subject</th><th>Lecture</th><th>Time</th><th>Status</th></tr></thead><tbody>{% for r in history %}<tr><td>{{r.attendance_date}}</td><td><strong>{{r.code}} — {{r.subject_name}}</strong></td><td>L{{r.lecture_no}}</td><td>{{r.lecture_time or '—'}}</td><td><span class="status-badge {% if r.status=='Present' %}present{% else %}absent{% endif %}">{{r.status}}</span></td></tr>{% else %}<tr><td colspan="5" class="muted">No attendance found for the selected filter.</td></tr>{% endfor %}</tbody></table></div></div>
 </div>{% endblock %}

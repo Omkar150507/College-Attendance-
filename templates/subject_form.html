@@ -2,7 +2,7 @@
 {% block content %}
 <div class="content-wrap subject-form-page">
   <div class="page-banner">
-    <div class="page-banner-icon">▥</div>
+    <div class="page-banner-icon">{{ icon('book', 26) }}</div>
     <div class="page-banner-copy">
       <h1>{{ title }}</h1>
       <p>Create or update a B.Pharm subject with a clean mobile-friendly form.</p>
@@ -56,7 +56,7 @@
 
       <div class="form-actions full-field">
         <a class="button" href="{{ url_for('subjects') }}">Cancel</a>
-        <button type="submit" class="primary">✓ Save Subject</button>
+        <button type="submit" class="primary">{{ icon('check', 16) }} Save Subject</button>
       </div>
     </form>
   </section>

@@ -42,9 +42,9 @@
   </section>
 
   <section class="approval-stats" aria-label="Registration summary">
-    <div class="approval-stat"><div class="approval-stat-icon">◷</div><div><div class="approval-stat-label">Awaiting review</div><div class="approval-stat-value">{{ pending_count }}</div></div></div>
-    <div class="approval-stat"><div class="approval-stat-icon">♙</div><div><div class="approval-stat-label">Approval workflow</div><div class="approval-stat-value" style="font-size:17px">Admin verified</div></div></div>
-    <div class="approval-stat"><div class="approval-stat-icon">⌁</div><div><div class="approval-stat-label">Access policy</div><div class="approval-stat-value" style="font-size:17px">Approval required</div></div></div>
+    <div class="approval-stat"><div class="approval-stat-icon">{{ icon('clock', 24) }}</div><div><div class="approval-stat-label">Awaiting review</div><div class="approval-stat-value">{{ pending_count }}</div></div></div>
+    <div class="approval-stat"><div class="approval-stat-icon">{{ icon('users', 24) }}</div><div><div class="approval-stat-label">Approval workflow</div><div class="approval-stat-value" style="font-size:17px">Admin verified</div></div></div>
+    <div class="approval-stat"><div class="approval-stat-icon">{{ icon('leave', 24) }}</div><div><div class="approval-stat-label">Access policy</div><div class="approval-stat-value" style="font-size:17px">Approval required</div></div></div>
   </section>
 
   <section class="approval-panel">
@@ -54,7 +54,7 @@
     </div>
     {% if pending_students %}
     <div class="approval-tools">
-      <div class="approval-search-wrap"><span aria-hidden="true">⌕</span><input id="approvalSearch" class="approval-search" type="search" placeholder="Search name, PRN, username, email, mobile or academic details…" aria-label="Search pending student registrations" autocomplete="off"></div>
+      <div class="approval-search-wrap"><span aria-hidden="true">{{ icon('search', 18) }}</span><input id="approvalSearch" class="approval-search" type="search" placeholder="Search name, PRN, username, email, mobile or academic details…" aria-label="Search pending student registrations" autocomplete="off"></div>
     </div>
     <div class="approval-table-wrap">
       <table class="approval-table" id="approvalTable">
@@ -78,12 +78,12 @@
         </tbody>
       </table>
     </div>
-    <div id="approvalNoResults" class="approval-empty" style="display:none"><div class="approval-empty-icon">⌕</div><h3>No matching students</h3><p>Try another name, PRN, username, email, mobile or academic detail.</p></div>
+    <div id="approvalNoResults" class="approval-empty" style="display:none"><div class="approval-empty-icon">{{ icon('search', 32) }}</div><h3>No matching students</h3><p>Try another name, PRN, username, email, mobile or academic detail.</p></div>
     {% else %}
-    <div class="approval-empty"><div class="approval-empty-icon">✓</div><h3>All caught up</h3><p>There are no student registration requests waiting for review. New requests will appear here when students register.</p></div>
+    <div class="approval-empty"><div class="approval-empty-icon">{{ icon('check', 32) }}</div><h3>All caught up</h3><p>There are no student registration requests waiting for review. New requests will appear here when students register.</p></div>
     {% endif %}
   </section>
-  <div class="approval-footnote"><span aria-hidden="true">ⓘ</span><div><strong>Before approving:</strong> verify the student’s identity and academic details against college records. Approval enables the student account to access the attendance system.</div></div>
+  <div class="approval-footnote"><span aria-hidden="true">{{ icon('alert', 18) }}</span><div><strong>Before approving:</strong> verify the student’s identity and academic details against college records. Approval enables the student account to access the attendance system.</div></div>
 </div>
 {% endblock %}
 {% block scripts %}
