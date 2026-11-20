@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#075aa2">
+    <title>{% block title %}{{ college_name }} - {{ college_tagline }}{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+{% if session.get('user_id') %}
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+        <div class="side-brand">
+            <img src="{{ url_for('static', filename=logo_file) }}" alt="College logo">
+            <div>
+                <strong>{{ college_name }}</strong>
+                <span>{{ college_tagline }}</span>
+            </div>
+        </div>
+        <nav class="side-nav">
+            <div class="nav-section">Main Menu</div>
+            <a class="nav-item {% if request.path == '/dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}"><i>{{ icon('home') }}</i>Dashboard</a>
+
+            {% if session.get('role') in ['admin','teacher'] %}
+            <div class="nav-section">Attendance Management</div>
+            <a class="nav-item {% if request.path == '/attendance' %}active{% endif %}" href="{{ url_for('take_attendance') }}"><i>{{ icon('check') }}</i>Take Attendance</a>
+            <a class="nav-item {% if request.path in ['/attendance/history','/attendance-history'] %}active{% endif %}" href="{{ url_for('attendance_history') }}"><i>{{ icon('history') }}</i>Attendance History</a>
+            <a class="nav-item {% if request.path == '/qr-attendance' %}active{% endif %}" href="{{ url_for('qr_attendance') }}"><i>{{ icon('qr') }}</i>QR Attendance</a>
+            <a class="nav-item {% if request.path.startswith('/reports') %}active{% endif %}" href="{{ url_for('reports') }}"><i>{{ icon('chart') }}</i>Reports</a>
+            <a class="nav-item {% if request.path == '/low-attendance' %}active{% endif %}" href="{{ url_for('low_attendance') }}"><i>{{ icon('alert') }}</i>Low Attendance</a>
+            <a class="nav-item {% if request.path.startswith('/timetable') %}active{% endif %}" href="{{ url_for('timetable') }}"><i>{{ icon('clock') }}</i>Timetable</a>
+            <a class="nav-item {% if request.path.startswith('/leaves') %}active{% endif %}" href="{{ url_for('leaves') }}"><i>{{ icon('leave') }}</i>Leave Applications</a>
+            {% endif %}
+
+            {% if session.get('role') == 'student' %}
+            <div class="nav-section">Student</div>
+            <a class="nav-item {% if request.path == '/student/dashboard' %}active{% endif %}" href="{{ url_for('student_dashboard') }}"><i>{{ icon('home') }}</i>My Dashboard</a>
+            <a class="nav-item {% if request.path == '/student/calendar' %}active{% endif %}" href="{{ url_for('student_calendar') }}"><i>{{ icon('cal') }}</i>Calendar</a>
+            <a class="nav-item {% if request.path == '/student/qr-scanner' %}active{% endif %}" href="{{ url_for('student_qr_scanner') }}"><i>{{ icon('qr') }}</i>Scan QR Attendance</a>
+            <a class="nav-item {% if request.path == '/student/my-report' %}active{% endif %}" href="{{ url_for('student_my_report') }}"><i>{{ icon('chart') }}</i>My Report</a>
+            <a class="nav-item {% if request.path.startswith('/timetable') %}active{% endif %}" href="{{ url_for('timetable') }}"><i>{{ icon('clock') }}</i>Timetable</a>
+            <a class="nav-item {% if request.path.startswith('/leaves') %}active{% endif %}" href="{{ url_for('leaves') }}"><i>{{ icon('leave') }}</i>Leave Applications</a>
+            {% endif %}
+
+            {% if session.get('role') == 'admin' %}
+            <div class="nav-section">College Management</div>
+            <a class="nav-item {% if request.path.startswith('/students') %}active{% endif %}" href="{{ url_for('students') }}"><i>{{ icon('users') }}</i>Student Management</a>
+            <a class="nav-item {% if request.path.startswith('/student-approvals') %}active{% endif %}" href="{{ url_for('student_approvals') }}"><i>{{ icon('check') }}</i>Student Approvals</a>
+            <a class="nav-item {% if request.path.startswith('/promotion') %}active{% endif %}" href="{{ url_for('student_promotion') }}"><i>{{ icon('up') }}</i>Promotion</a>
+            <a class="nav-item {% if request.path.startswith('/teachers') %}active{% endif %}" href="{{ url_for('teachers') }}"><i>{{ icon('user') }}</i>Teacher Management</a>
+            <a class="nav-item {% if request.path.startswith('/subjects') %}active{% endif %}" href="{{ url_for('subjects') }}"><i>{{ icon('book') }}</i>Subject Management</a>
+            <a class="nav-item {% if request.path.startswith('/admin/backup') %}active{% endif %}" href="{{ url_for('backup_database') }}"><i>{{ icon('download') }}</i>Backup &amp; Restore</a>
+            <a class="nav-item {% if request.path.startswith('/admin/settings') %}active{% endif %}" href="{{ url_for('settings') }}"><i>{{ icon('gear') }}</i>Admin Settings</a>
+            <a class="nav-item {% if request.path.startswith('/admin/security') %}active{% endif %}" href="{{ url_for('admin_security') }}"><i>{{ icon('shield') }}</i>2-Step Security</a>
+            <a class="nav-item {% if request.path.startswith('/admin/deleted-students') %}active{% endif %}" href="{{ url_for('deleted_students') }}"><i>{{ icon('restore') }}</i>Deleted Students</a>
+            <a class="nav-item {% if request.path.startswith('/admin/restore') %}active{% endif %}" href="{{ url_for('restore_backup') }}"><i>{{ icon('upload') }}</i>Restore Backup</a>
+            <a class="nav-item {% if request.path.startswith('/activity-log') %}active{% endif %}" href="{{ url_for('activity_log') }}"><i>{{ icon('list') }}</i>Activity Log</a>
+            {% endif %}
+
+            <div class="nav-section">Account</div>
+            <a class="nav-item {% if request.path.startswith('/notifications') %}active{% endif %}" href="{{ url_for('notifications') }}"><i>{{ icon('bell') }}</i>Notifications{% if unread_notifications %}<b class="nav-count">{{ unread_notifications }}</b>{% endif %}</a>
+            <a class="nav-item {% if request.path.startswith('/profile') %}active{% endif %}" href="{{ url_for('profile') }}"><i>{{ icon('user') }}</i>Profile</a>
+            <form class="logout-form" method="post" action="{{ url_for('logout') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="nav-item logout-item" type="submit"><i>{{ icon('logout') }}</i>Logout</button>
+            </form>
+        </nav>
+        <div class="side-bottom">
+            <div class="side-mortar">{{ icon('cal', 22) }}</div>
+            <strong>{{ college_name }}</strong>
+            <span>Track • Manage • Stay on Track</span>
+        </div>
+    </aside>
+
+    <div class="mobile-overlay" id="mobileOverlay"></div>
+    <main class="main-content">
+        <header class="topbar">
+            <button class="menu-toggle" id="menuToggle" type="button" aria-label="Open menu">{{ icon('menu', 24) }}</button>
+            <div class="topbar-brand">
+                <img src="{{ url_for('static', filename=logo_file) }}" alt="Logo">
+                <div><strong>{{ college_name }}</strong><small>{{ college_tagline }}</small></div>
+            </div>
+            <div class="topbar-search"><span>{{ icon('search', 18) }}</span><input type="text" placeholder="Search by PRN, Name, Role..." aria-label="Search"></div>
+            <div class="topbar-actions">
+                <a class="notification-btn" href="{{ url_for('notifications') }}" aria-label="Notifications">{{ icon('bell', 22) }}{% if unread_notifications %}<b>{{ unread_notifications }}</b>{% endif %}</a>
+                <div class="profile-chip">
+                    <div class="avatar">{{ (session.get('full_name') or session.get('username') or 'U')[:1]|upper }}</div>
+                    <div><strong>{{ session.get('full_name') or session.get('username') or 'User' }}</strong><small>{{ session.get('role','')|title }}</small></div>
+                    <span class="chev">{{ icon('chev', 16) }}</span>
+                </div>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div>
+            {% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+
+        <footer class="site-footer">
+            <span>© 2026 {{ college_name }}. All Rights Reserved.</span>
+            <span>Attendance Management System</span>
+        </footer>
+    </main>
+</div>
+<nav class="mobile-bottom-nav">
+    <a href="{{ url_for('dashboard') }}"><span>{{ icon('home', 24) }}</span>Home</a>
+    {% if session.get('role') in ['admin','teacher'] %}<a href="{{ url_for('take_attendance') }}"><span>{{ icon('check', 24) }}</span>Attendance</a>{% else %}<a href="{{ url_for('student_calendar') }}"><span>{{ icon('cal', 24) }}</span>Calendar</a>{% endif %}
+    <a href="{{ url_for('notifications') }}"><span>{{ icon('bell', 24) }}</span>Alerts</a>
+    <a href="{{ url_for('profile') }}"><span>{{ icon('user', 24) }}</span>Profile</a>
+</nav>
+{% else %}
+    {% block login_content %}{% endblock %}
+{% endif %}
+{% block scripts %}{% endblock %}
+<script>
+(function(){
+  const btn=document.getElementById('menuToggle');
+  const side=document.getElementById('sidebar');
+  const overlay=document.getElementById('mobileOverlay');
+  function closeMenu(){ if(side) side.classList.remove('open'); if(overlay) overlay.classList.remove('show'); }
+  if(btn && side && overlay){
+    btn.addEventListener('click',function(){side.classList.toggle('open');overlay.classList.toggle('show');});
+    overlay.addEventListener('click',closeMenu);
+    document.querySelectorAll('.sidebar a').forEach(function(a){a.addEventListener('click',closeMenu);});
+  }
+})();
+</script>
+</body>
+</html>
