@@ -2098,34 +2098,7 @@ def student_my_report_pdf():
                 selected_subject_name = sub["name"]
                 selected_subject_code = sub["code"] or ""
                 break
-    try:
-        _thr = attendance_threshold_value(db)
-    except Exception:
-        _thr = 75.0
     db.close()
-
-    # Classic Formal design (falls back to the old layout below if anything goes wrong)
-    try:
-        from attendance_pdf_designs import build_pdf
-        _hist = {}
-        for _h in history:
-            _hist.setdefault(_h["code"], []).append(_h)
-        _rep = []
-        for _s in summary:
-            if int(_s["total"] or 0) == 0 and not selected_subject:
-                continue
-            _rep.append({"code": _s["code"], "name": _s["subject_name"], "semester": selected_semester,
-                         "total": int(_s["total"] or 0), "present": int(_s["present"] or 0),
-                         "absent": int(_s["absent"] or 0), "pct": float(_s["pct"] or 0),
-                         "history": _hist.get(_s["code"], [])})
-        if _rep:
-            _pdf = build_pdf(student, _rep, style="classic", threshold=_thr, college=str(COLLEGE_NAME),
-                             logo_path=BASE_DIR / "static" / LOGO_FILE, tagline=PDF_AFFILIATION)
-            _safe_prn = re.sub(r"[^A-Za-z0-9_-]", "_", str(student["prn"] or "student"))
-            return Response(_pdf, mimetype="application/pdf",
-                            headers={"Content-Disposition": f"attachment; filename=student_attendance_report_{_safe_prn}.pdf"})
-    except Exception:
-        app.logger.exception("Classic my-report PDF failed; using the old layout")
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=12*mm, leftMargin=12*mm,
@@ -4163,29 +4136,7 @@ def report_text(student, report, with_names=True):
     return "\n".join(lines)
 
 
-PDF_AFFILIATION = "Affiliated to Dr. Babasaheb Ambedkar Technological University, Lonere, Raigad"
-
-
 def build_subject_wise_pdf(student, report):
-    """Classic Formal attendance statement - one page set per subject (ordered by subject code)."""
-    try:
-        from attendance_pdf_designs import build_pdf
-        try:
-            _db = get_db()
-            try:
-                _thr = attendance_threshold_value(_db)
-            finally:
-                _db.close()
-        except Exception:
-            _thr = 75.0
-        return build_pdf(student, report, style="classic", threshold=_thr, college=str(COLLEGE_NAME),
-                         logo_path=BASE_DIR / "static" / LOGO_FILE, tagline=PDF_AFFILIATION)
-    except Exception:
-        app.logger.exception("Classic PDF design failed; using the old layout")
-        return _build_subject_wise_pdf_legacy(student, report)
-
-
-def _build_subject_wise_pdf_legacy(student, report):
     """One PDF; every subject starts on its own page (ordered by subject code)."""
     from reportlab.platypus import PageBreak
     buffer = io.BytesIO()
