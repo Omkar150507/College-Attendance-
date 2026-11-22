@@ -64,6 +64,11 @@ from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from config import COLLEGE_NAME, COLLEGE_TAGLINE, LOGO_FILE
+try:
+    from config import PDF_STYLE
+except ImportError:
+    PDF_STYLE = "dashboard"
+from attendance_pdf_designs import build_pdf, build_class_report_pdf
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -2098,137 +2103,31 @@ def student_my_report_pdf():
                 selected_subject_name = sub["name"]
                 selected_subject_code = sub["code"] or ""
                 break
+    threshold = attendance_threshold_value(db)
     db.close()
 
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=12*mm, leftMargin=12*mm,
-                            topMargin=12*mm, bottomMargin=12*mm)
-    styles = getSampleStyleSheet()
-    title = ParagraphStyle("StudentReportTitle", parent=styles["Title"], alignment=TA_CENTER,
-                           fontSize=19, leading=22, textColor=colors.HexColor("#123f73"), spaceAfter=2)
-    subtitle = ParagraphStyle("StudentReportSub", parent=styles["Normal"], alignment=TA_CENTER,
-                              fontSize=9, leading=12, textColor=colors.HexColor("#475569"))
-    section = ParagraphStyle("StudentReportSection", parent=styles["Heading2"], fontSize=12, leading=15,
-                             textColor=colors.HexColor("#123f73"), spaceBefore=8, spaceAfter=5)
-    body = ParagraphStyle("StudentReportBody", parent=styles["Normal"], fontSize=9, leading=12,
-                          textColor=colors.HexColor("#263b52"))
-    cell = ParagraphStyle("StudentReportCell", parent=styles["Normal"], fontSize=8, leading=10,
-                          textColor=colors.HexColor("#172f49"))
-    head = ParagraphStyle("StudentReportHead", parent=cell, fontName="Helvetica-Bold",
-                          textColor=colors.white, alignment=TA_CENTER)
-
-    story = []
-    logo_path = BASE_DIR / "static" / LOGO_FILE
-    logo = Image(str(logo_path), width=22*mm, height=22*mm) if logo_path.exists() else ""
-    filter_text = f"Semester: {selected_semester or 'All'}"
-    if selected_subject_name:
-        filter_text += f"Subject: {selected_subject_code} - {selected_subject_name}"
-    if selected_session:
-        filter_text += (" | " if filter_text else "") + f"Session: {selected_session}"
-    header_lines = [
-        Paragraph(xml_escape(str(COLLEGE_NAME)), title),
-        Paragraph("Student Attendance Report", ParagraphStyle("RSubTitle", parent=title, fontSize=13, leading=16)),
-        Paragraph(xml_escape(filter_text or "Complete attendance report"), subtitle),
-    ]
-    hdr = Table([[logo, header_lines]], colWidths=[25*mm, 150*mm])
-    hdr.setStyle(TableStyle([
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("ALIGN", (1,0), (1,0), "CENTER"),
-        ("LINEBELOW", (1,0), (1,0), 1, colors.HexColor("#174f8b")),
-        ("LEFTPADDING", (0,0), (-1,-1), 2), ("RIGHTPADDING", (0,0), (-1,-1), 2),
-        ("TOPPADDING", (0,0), (-1,-1), 2), ("BOTTOMPADDING", (0,0), (-1,-1), 2),
-    ]))
-    story += [hdr, Spacer(1, 5*mm)]
-
-    info = [
-        [Paragraph("Student Name", body), Paragraph(xml_escape(str(student["name"] or "—")), body),
-         Paragraph("PRN", body), Paragraph(xml_escape(str(student["prn"] or "—")), body)],
-        [Paragraph("Course", body), Paragraph(xml_escape(str(student["course"] or "B.Pharm")), body),
-         Paragraph("Year", body), Paragraph(xml_escape(str(student["year"] or "—")), body)],
-        [Paragraph("Semester", body), Paragraph(xml_escape(f"Semester {selected_semester}" if selected_semester else "All Semesters"), body),
-         Paragraph("Session", body), Paragraph(xml_escape(selected_session or "All Sessions"), body)],
-    ]
-    info_table = Table(info, colWidths=[28*mm, 62*mm, 22*mm, 63*mm])
-    info_table.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#eef5fb")),
-        ("BACKGROUND", (2,0), (2,-1), colors.HexColor("#eef5fb")),
-        ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
-        ("INNERGRID", (0,0), (-1,-1), 0.35, colors.HexColor("#dbe4ee")),
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("LEFTPADDING", (0,0), (-1,-1), 5), ("RIGHTPADDING", (0,0), (-1,-1), 5),
-        ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5),
-    ]))
-    story += [info_table, Spacer(1, 4*mm)]
-
-    stats = Table([[
-        Paragraph(f"<b>Total</b><br/>{total}", body),
-        Paragraph(f"<b>Present</b><br/>{present}", body),
-        Paragraph(f"<b>Absent</b><br/>{absent}", body),
-        Paragraph(f"<b>Attendance</b><br/>{overall}%", body),
-    ]], colWidths=[43.75*mm]*4)
-    stats.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#f8fafc")),
-        ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
-        ("INNERGRID", (0,0), (-1,-1), 0.35, colors.HexColor("#dbe4ee")),
-        ("ALIGN", (0,0), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7),
-    ]))
-    story += [stats, Spacer(1, 4*mm), Paragraph("Subject-wise Attendance", section)]
-
-    subject_data = [[Paragraph("Subject", head), Paragraph("Total", head), Paragraph("Present", head),
-                     Paragraph("Absent", head), Paragraph("Attendance %", head)]]
+    by_key = {}
+    for r in history:
+        by_key.setdefault(r["code"], []).append(r)
+    report_items = []
     for r in summary:
-        subject_data.append([
-            Paragraph(xml_escape(f"{r['code']} - {r['subject_name']}"), cell),
-            Paragraph(str(r["total"]), cell), Paragraph(str(r["present"]), cell),
-            Paragraph(str(r["absent"]), cell), Paragraph(f"{r['pct']}%", cell)
-        ])
-    if len(subject_data) == 1:
-        subject_data.append([Paragraph("No subject attendance found.", cell), "", "", "", ""])
-    subject_table = Table(subject_data, colWidths=[92*mm, 20*mm, 20*mm, 20*mm, 23*mm], repeatRows=1)
-    subject_table.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#07579a")),
-        ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
-        ("INNERGRID", (0,0), (-1,-1), 0.35, colors.HexColor("#dbe4ee")),
-        ("ALIGN", (1,1), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5),
-        ("LEFTPADDING", (0,0), (-1,-1), 4), ("RIGHTPADDING", (0,0), (-1,-1), 4),
-    ]))
-    story += [subject_table]
-
-    if history:
-        story += [Spacer(1, 4*mm), Paragraph("Attendance History", section)]
-        hist_data = [[Paragraph("Date", head), Paragraph("Subject", head), Paragraph("Lecture", head),
-                      Paragraph("Time", head), Paragraph("Session", head), Paragraph("Status", head)]]
-        for r in history:
-            hist_data.append([Paragraph(str(r["attendance_date"] or "—"), cell),
-                              Paragraph(xml_escape(f"{r['code']} - {r['subject_name']}"), cell),
-                              Paragraph(f"L{r['lecture_no']}", cell),
-                              Paragraph(xml_escape(str(r["lecture_time"] or "—")), cell),
-                              Paragraph(xml_escape(str(r["session_type"] or "Lecture")), cell),
-                              Paragraph(xml_escape(str(r["status"] or "—")), cell)])
-        hist_table = Table(hist_data, colWidths=[25*mm, 61*mm, 17*mm, 28*mm, 25*mm, 20*mm], repeatRows=1)
-        hist_table.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#07579a")),
-            ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
-            ("INNERGRID", (0,0), (-1,-1), 0.35, colors.HexColor("#dbe4ee")),
-            ("ALIGN", (2,1), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-            ("TOPPADDING", (0,0), (-1,-1), 4), ("BOTTOMPADDING", (0,0), (-1,-1), 4),
-            ("LEFTPADDING", (0,0), (-1,-1), 3), ("RIGHTPADDING", (0,0), (-1,-1), 3),
-        ]))
-        story += [hist_table]
-    elif selected_subject:
-        story += [Spacer(1, 4*mm), Paragraph("Attendance History", section),
-                  Paragraph("No attendance history found for the selected subject/filter.", body)]
-
-    doc.build(story)
-    buffer.seek(0)
+        if not int(r["total"] or 0) and not selected_subject_name:
+            continue
+        label = r["subject_name"]
+        report_items.append({"semester": selected_semester or student["semester"] or "", "code": r["code"], "name": label,
+                             "total": int(r["total"] or 0), "present": int(r["present"] or 0), "absent": int(r["absent"] or 0),
+                             "pct": float(r["pct"] or 0), "history": by_key.get(r["code"], [])})
+    if not report_items:
+        return Response("No attendance records found for the selected filters.", status=404, mimetype="text/plain")
+    pdf_bytes = build_pdf(dict(student), report_items, style=PDF_STYLE, threshold=threshold, college=COLLEGE_NAME,
+                          logo_path=BASE_DIR / "static" / LOGO_FILE)
     safe_prn = re.sub(r"[^A-Za-z0-9_-]+", "_", str(student["prn"] or student["id"])).strip("_") or "student"
     suffix = ""
     if selected_subject_name:
         suffix += "_" + re.sub(r"[^A-Za-z0-9_-]+", "_", selected_subject_name).strip("_")
     if selected_session:
         suffix += "_" + selected_session.lower()
-    return Response(buffer.getvalue(), mimetype="application/pdf",
+    return Response(pdf_bytes, mimetype="application/pdf",
                     headers={"Content-Disposition": f"attachment; filename=student_attendance_report_{safe_prn}{suffix}.pdf"})
 
 
@@ -3171,246 +3070,23 @@ def export_pdf():
     conducted_teacher_text = ", ".join((r["full_name"] or r["username"]) for r in conducted_rows) or "—"
     status_rows = db.execute(f"SELECT DISTINCT COALESCE(a.teacher_status,'Scheduled teacher present') teacher_status FROM attendance a WHERE {on_condition} ORDER BY teacher_status", on_params).fetchall()
     teacher_status_text = ", ".join(r["teacher_status"] for r in status_rows) or "—"
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer, pagesize=landscape(A4),
-        rightMargin=10*mm, leftMargin=10*mm, topMargin=8*mm, bottomMargin=12*mm
-    )
-    styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle(
-        "CollegeTitle", parent=styles["Title"], alignment=TA_CENTER,
-        fontSize=21, leading=24, spaceAfter=1, textColor=colors.HexColor("#12355b")
-    )
-    affiliation_style = ParagraphStyle(
-        "Affiliation", parent=styles["Normal"], alignment=TA_CENTER,
-        fontSize=12.5, leading=16, spaceAfter=1, textColor=colors.HexColor("#15539a")
-    )
-    course_style = ParagraphStyle(
-        "Course", parent=styles["Normal"], alignment=TA_CENTER,
-        fontSize=11.5, leading=14, spaceAfter=2, textColor=colors.HexColor("#12355b")
-    )
-    report_style = ParagraphStyle(
-        "ReportSub", parent=styles["Normal"], alignment=TA_CENTER,
-        fontSize=18, leading=21, spaceAfter=2, textColor=colors.white
-    )
-    meta_style = ParagraphStyle(
-        "ReportMeta", parent=styles["Normal"], alignment=TA_LEFT,
-        fontSize=10.5, leading=14, textColor=colors.HexColor("#12355b")
-    )
-    small_style = ParagraphStyle(
-        "Small", parent=styles["Normal"], fontSize=8.5, leading=11,
-        textColor=colors.HexColor("#334155")
-    )
-
-    story = []
-    logo_path = BASE_DIR / "static" / LOGO_FILE
-    logo = Image(str(logo_path), width=28*mm, height=28*mm) if logo_path.exists() else ""
-
-    class_name = year if year else "All Classes"
-    course_name = "B.Pharm"
-
-    # FIRST PAGE ONLY: full institutional header.
-    header_text = [
-        Paragraph(xml_escape(str(COLLEGE_NAME)), title_style),
-        Paragraph(
-            "Affiliated by Dr. Babasaheb Ambedkar Technological University, Lonere, Raigad",
-            affiliation_style
-        ),
-        Paragraph("B.Pharm", course_style),
-    ]
-    header = Table([[logo, header_text]], colWidths=[32*mm, 230*mm])
-    header.setStyle(TableStyle([
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("ALIGN", (1,0), (1,0), "CENTER"),
-        ("LEFTPADDING", (0,0), (-1,-1), 0),
-        ("RIGHTPADDING", (0,0), (-1,-1), 0),
-        ("TOPPADDING", (0,0), (-1,-1), 0),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 0),
-    ]))
-    story.append(header)
-    story.append(Spacer(1, 3*mm))
-
-    # Attendance report title ribbon.
-    report_banner = Table(
-        [[Paragraph("▣ &nbsp; ATTENDANCE REPORT", report_style)]],
-        colWidths=[262*mm]
-    )
-    report_banner.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#07579a")),
-        ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#07579a")),
-        ("LEFTPADDING", (0,0), (-1,-1), 6),
-        ("RIGHTPADDING", (0,0), (-1,-1), 6),
-        ("TOPPADDING", (0,0), (-1,-1), 7),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 7),
-    ]))
-    story.append(report_banner)
-    story.append(Spacer(1, 4*mm))
-
-    # Information strip.
-    period_text = f"{from_date or '—'} – {to_date or '—'}"
-    semester_text = f"Semester {semester}" if semester else "All Semesters"
-    info_data = [[
-        Paragraph(f"<b>Course</b>&nbsp;&nbsp;: &nbsp;B.Pharm", meta_style),
-        Paragraph(f"<b>Year</b>&nbsp;&nbsp;: &nbsp;{xml_escape(str(class_name))}", meta_style),
-        Paragraph(f"<b>Semester</b>&nbsp;&nbsp;: &nbsp;{xml_escape(semester_text)}", meta_style),
-    ],[
-        Paragraph(f"<b>Subject</b>&nbsp;&nbsp;: &nbsp;{xml_escape(str(subject_name))}", meta_style),
-        Paragraph(f"<b>Session</b>&nbsp;&nbsp;: &nbsp;{xml_escape(session_type or 'All')}", meta_style),
-        Paragraph(f"<b>Date Range</b>&nbsp;&nbsp;: &nbsp;{xml_escape(period_text)}", meta_style),
-    ]]
-    info = Table(info_data, colWidths=[88*mm, 70*mm, 104*mm])
-    info.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#eaf4ff")),
-        ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#c6def4")),
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("LEFTPADDING", (0,0), (-1,-1), 7),
-        ("RIGHTPADDING", (0,0), (-1,-1), 7),
-        ("TOPPADDING", (0,0), (-1,-1), 8),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 8),
-    ]))
-    story.append(info)
-    story.append(Spacer(1, 5*mm))
-
-    # Only the table header repeats on subsequent pages.
-    data = [["PRN", "Student Name", "Total Lectures", "Present", "Absent", "Attendance %"]]
-    for r in rows:
-        data.append([
-            str(r["prn"] or "—"), str(r["name"] or ""), r["total"], r["present"],
-            r["absent"], f'{r["pct"]}%'
-        ])
-
-    table = Table(
-        data, repeatRows=1,
-        colWidths=[38*mm, 67*mm, 36*mm, 32*mm, 32*mm, 40*mm],
-        hAlign="CENTER"
-    )
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#07579a")),
-        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
-        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
-        ("FONTNAME", (0,1), (-1,-1), "Helvetica"),
-        ("FONTSIZE", (0,0), (-1,0), 9.5),
-        ("FONTSIZE", (0,1), (-1,-1), 8.8),
-        ("LEADING", (0,0), (-1,-1), 11),
-        ("ALIGN", (0,0), (-1,-1), "CENTER"),
-        ("ALIGN", (1,1), (1,-1), "LEFT"),
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("GRID", (0,0), (-1,-1), 0.45, colors.HexColor("#9fc5e8")),
-        ("ROWBACKGROUNDS", (0,1), (-1,-1),
-         [colors.white, colors.HexColor("#eef7ff")]),
-        ("TOPPADDING", (0,0), (-1,-1), 5.5),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 5.5),
-    ]))
-    story.append(table)
-
-    # Specific student + subject: show date-wise attendance history in the PDF.
-    if student_id and subject_id:
-        story.append(Spacer(1, 6*mm))
-        history_title = ParagraphStyle(
-            "HistoryTitle", parent=styles["Heading2"], alignment=TA_LEFT,
-            fontSize=13, leading=16, spaceAfter=3, textColor=colors.HexColor("#12355b")
-        )
-        story.append(Paragraph(
-            f"Attendance History — {xml_escape(str(selected_student_name or 'Student'))}",
-            history_title
-        ))
-        history_data = [["Date", "Lecture", "Time", "Session", "Batch", "Status"]]
-        for h in student_history:
-            history_data.append([
-                str(h["attendance_date"] or "—"),
-                f"L{h['lecture_no']}" if h["lecture_no"] is not None else "—",
-                str(h["lecture_time"] or "—"),
-                str(h["session_type"] or "Lecture"),
-                str(h["batch"] or "All Batches") if str(h["session_type"] or "Lecture") == "Practical" else "—",
-                str(h["status"] or "—")
-            ])
-        if len(history_data) == 1:
-            history_data.append(["—", "—", "—", "—", "—", "No attendance history found"])
-        history_table = Table(
-            history_data, repeatRows=1,
-            colWidths=[34*mm, 27*mm, 39*mm, 35*mm, 42*mm, 35*mm],
-            hAlign="CENTER"
-        )
-        history_table.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#07579a")),
-            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
-            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
-            ("FONTSIZE", (0,0), (-1,-1), 8.3),
-            ("ALIGN", (0,0), (-1,-1), "CENTER"),
-            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-            ("GRID", (0,0), (-1,-1), 0.4, colors.HexColor("#9fc5e8")),
-            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#eef7ff")]),
-            ("TOPPADDING", (0,0), (-1,-1), 4.5),
-            ("BOTTOMPADDING", (0,0), (-1,-1), 4.5),
-        ]))
-        story.append(history_table)
-
-    # Signature is after the table, so it appears only at the end of the report.
-    story.append(Spacer(1, 7*mm))
-    generated = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y | %I:%M %p")
-    sign_data = [[
-        Paragraph(f"<b>Generated On</b>&nbsp;&nbsp;: &nbsp;{generated}", small_style),
-        Paragraph(
-            "______________________________<br/><b>Teacher Signature</b><br/>(Subject Incharge)",
-            small_style
-        )
-    ]]
-    sign = Table(sign_data, colWidths=[130*mm, 132*mm])
-    sign.setStyle(TableStyle([
-        ("VALIGN", (0,0), (-1,-1), "BOTTOM"),
-        ("ALIGN", (1,0), (1,0), "CENTER"),
-        ("LEFTPADDING", (0,0), (-1,-1), 0),
-        ("RIGHTPADDING", (0,0), (-1,-1), 0),
-        ("TOPPADDING", (0,0), (-1,-1), 0),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 0),
-    ]))
-    story.append(sign)
-
-    def draw_page_footer(canvas, doc_obj):
-        canvas.saveState()
-        page_w, page_h = landscape(A4)
-
-        # Dark blue footer band.
-        footer_h = 9*mm
-        canvas.setFillColor(colors.HexColor("#084b83"))
-        canvas.rect(0, 0, page_w, footer_h, fill=1, stroke=0)
-
-        canvas.setFillColor(colors.white)
-        canvas.setFont("Helvetica", 9)
-        canvas.drawCentredString(
-            page_w / 2, 3.3*mm, "Better Education  •  Brighter Future"
-        )
-        canvas.drawRightString(
-            page_w - 10*mm, 3.3*mm, f"Page {doc_obj.page}"
-        )
-
-        # For pages after page 1, keep only a compact report context line.
-        if doc_obj.page > 1:
-            canvas.setFillColor(colors.HexColor("#12355b"))
-            canvas.setFont("Helvetica-Bold", 8.5)
-            canvas.drawString(
-                10*mm, page_h - 5*mm,
-                f"ATTENDANCE REPORT  |  {subject_name}  |  {class_name}"
-            )
-            canvas.setStrokeColor(colors.HexColor("#c6def4"))
-            canvas.line(10*mm, page_h - 6.5*mm, page_w - 10*mm, page_h - 6.5*mm)
-
-        canvas.restoreState()
-
-    # The complete college header is deliberately NOT repeated.
-    doc.build(story, onFirstPage=draw_page_footer, onLaterPages=draw_page_footer)
-
-    pdf = buffer.getvalue()
-    buffer.close()
+    threshold = attendance_threshold_value(db)
     db.close()
-    return Response(
-        pdf,
-        mimetype="application/pdf",
-        headers={"Content-Disposition":"attachment; filename=attendance_report.pdf"}
-    )
-
-
+    class_name = year if year else "All Classes"
+    meta = [("Course", "B.Pharm"), ("Year", class_name), ("Semester", f"Semester {semester}" if semester else "All Semesters"),
+            ("Subject", subject_name), ("Session", session_type or "All"),
+            ("Date range", f"{from_date or '—'} to {to_date or '—'}")]
+    if subject_id:
+        meta += [("Scheduled teacher", scheduled_teacher_text), ("Conducted by", conducted_teacher_text), ("Teacher status", teacher_status_text)]
+    history_rows = None
+    history_title = ""
+    if student_id and subject_id:
+        history_rows = [dict(h) for h in student_history]
+        history_title = f"Lecture-wise history - {selected_student_name or 'Student'}"
+    pdf = build_class_report_pdf([dict(r) for r in rows], college=COLLEGE_NAME, logo_path=BASE_DIR / "static" / LOGO_FILE,
+                                 threshold=threshold, tagline="Student Attendance Management System", meta=meta,
+                                 student_history=history_rows, history_title=history_title)
+    return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": "attachment; filename=attendance_report.pdf"})
 
 @app.post("/activity-log/clear")
 @login_required
@@ -3720,7 +3396,7 @@ def send_attendance_email(db, student_id, kind):
     attachments = None
     if kind == "weekly":
         safe = re.sub(r"[^A-Za-z0-9_-]+", "_", str(student["prn"] or student["roll_no"])).strip("_") or "student"
-        attachments = [(f"Attendance_Report_{safe}.pdf", build_subject_wise_pdf(student, report))]
+        attachments = [(f"Attendance_Report_{safe}.pdf", build_subject_wise_pdf(student, report, threshold))]
     try:
         send_email_message(email, student["name"], subject, text, html, attachments)
     except Exception as exc:
@@ -4136,120 +3812,10 @@ def report_text(student, report, with_names=True):
     return "\n".join(lines)
 
 
-def build_subject_wise_pdf(student, report):
-    """One PDF; every subject starts on its own page (ordered by subject code)."""
-    from reportlab.platypus import PageBreak
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=12*mm, leftMargin=12*mm,
-                            topMargin=12*mm, bottomMargin=12*mm)
-    styles = getSampleStyleSheet()
-    title = ParagraphStyle("SRTitle", parent=styles["Title"], alignment=TA_CENTER, fontSize=19, leading=22,
-                           textColor=colors.HexColor("#123f73"), spaceAfter=2)
-    subtitle = ParagraphStyle("SRSub", parent=styles["Normal"], alignment=TA_CENTER, fontSize=9, leading=12,
-                              textColor=colors.HexColor("#475569"))
-    section = ParagraphStyle("SRSection", parent=styles["Heading2"], fontSize=12, leading=15,
-                             textColor=colors.HexColor("#123f73"), spaceBefore=8, spaceAfter=5)
-    body = ParagraphStyle("SRBody", parent=styles["Normal"], fontSize=9, leading=12, textColor=colors.HexColor("#263b52"))
-    cell = ParagraphStyle("SRCell", parent=styles["Normal"], fontSize=8, leading=10, textColor=colors.HexColor("#172f49"))
-    head = ParagraphStyle("SRHead", parent=cell, fontName="Helvetica-Bold", textColor=colors.white, alignment=TA_CENTER)
-    ok_style = ParagraphStyle("SROk", parent=cell, fontName="Helvetica-Bold", textColor=colors.HexColor("#1a7f45"), alignment=TA_CENTER)
-    bad_style = ParagraphStyle("SRBad", parent=cell, fontName="Helvetica-Bold", textColor=colors.HexColor("#b42318"), alignment=TA_CENTER)
-
-    logo_path = BASE_DIR / "static" / LOGO_FILE
-    story = []
-    for idx, sub in enumerate(report):
-        if idx:
-            story.append(PageBreak())
-        logo = Image(str(logo_path), width=22*mm, height=22*mm) if logo_path.exists() else ""
-        header_lines = [
-            Paragraph(xml_escape(str(COLLEGE_NAME)), title),
-            Paragraph("Student Attendance Report", ParagraphStyle("SRSubTitle", parent=title, fontSize=13, leading=16)),
-            Paragraph(xml_escape(f"Semester: {sub['semester']} | Subject: {sub['code']} - {sub['name']}"), subtitle),
-        ]
-        hdr = Table([[logo, header_lines]], colWidths=[25*mm, 150*mm])
-        hdr.setStyle(TableStyle([
-            ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("ALIGN", (1,0), (1,0), "CENTER"),
-            ("LINEBELOW", (1,0), (1,0), 1, colors.HexColor("#174f8b")),
-            ("LEFTPADDING", (0,0), (-1,-1), 2), ("RIGHTPADDING", (0,0), (-1,-1), 2),
-            ("TOPPADDING", (0,0), (-1,-1), 2), ("BOTTOMPADDING", (0,0), (-1,-1), 2),
-        ]))
-        story += [hdr, Spacer(1, 5*mm)]
-
-        info = [
-            [Paragraph("Student Name", body), Paragraph(xml_escape(str(student["name"] or "-")), body),
-             Paragraph("PRN", body), Paragraph(xml_escape(str(student["prn"] or "-")), body)],
-            [Paragraph("Course", body), Paragraph(xml_escape(str(student["course"] or "B.Pharm")), body),
-             Paragraph("Year", body), Paragraph(xml_escape(str(student["year"] or "-")), body)],
-            [Paragraph("Semester", body), Paragraph(f"Semester {sub['semester']}", body),
-             Paragraph("Session", body), Paragraph("All Sessions", body)],
-        ]
-        info_table = Table(info, colWidths=[28*mm, 62*mm, 22*mm, 63*mm])
-        info_table.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#eef5fb")),
-            ("BACKGROUND", (2,0), (2,-1), colors.HexColor("#eef5fb")),
-            ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
-            ("INNERGRID", (0,0), (-1,-1), 0.35, colors.HexColor("#dbe4ee")),
-            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-            ("LEFTPADDING", (0,0), (-1,-1), 5), ("RIGHTPADDING", (0,0), (-1,-1), 5),
-            ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5),
-        ]))
-        story += [info_table, Spacer(1, 4*mm)]
-
-        stats = Table([[Paragraph(f"<b>Total</b><br/>{sub['total']}", body),
-                        Paragraph(f"<b>Present</b><br/>{sub['present']}", body),
-                        Paragraph(f"<b>Absent</b><br/>{sub['absent']}", body),
-                        Paragraph(f"<b>Attendance</b><br/>{sub['pct']:.1f}%", body)]], colWidths=[43.75*mm]*4)
-        stats.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#f8fafc")),
-            ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
-            ("INNERGRID", (0,0), (-1,-1), 0.35, colors.HexColor("#dbe4ee")),
-            ("ALIGN", (0,0), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-            ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7),
-        ]))
-        story += [stats, Spacer(1, 4*mm), Paragraph("Subject-wise Attendance", section)]
-
-        subject_data = [
-            [Paragraph("Subject", head), Paragraph("Total", head), Paragraph("Present", head),
-             Paragraph("Absent", head), Paragraph("Attendance %", head)],
-            [Paragraph(xml_escape(f"{sub['code']} - {sub['name']}"), cell), Paragraph(str(sub["total"]), cell),
-             Paragraph(str(sub["present"]), cell), Paragraph(str(sub["absent"]), cell),
-             Paragraph(f"{sub['pct']:.1f}%", cell)],
-        ]
-        subject_table = Table(subject_data, colWidths=[92*mm, 20*mm, 20*mm, 20*mm, 23*mm])
-        subject_table.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#07579a")),
-            ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
-            ("INNERGRID", (0,0), (-1,-1), 0.35, colors.HexColor("#dbe4ee")),
-            ("ALIGN", (1,1), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-            ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5),
-        ]))
-        story += [subject_table, Spacer(1, 4*mm), Paragraph("Attendance History", section)]
-
-        hist_data = [[Paragraph(h, head) for h in ("Date", "Subject", "Lecture", "Time", "Session", "Status")]]
-        status_bg = []
-        for i, r in enumerate(sub["history"], start=1):
-            present = str(r["status"]) == "Present"
-            hist_data.append([Paragraph(str(r["attendance_date"] or "-"), cell),
-                              Paragraph(xml_escape(f"{sub['code']} - {sub['name']}"), cell),
-                              Paragraph(f"L{r['lecture_no']}", cell),
-                              Paragraph(xml_escape(str(r["lecture_time"] or "-")), cell),
-                              Paragraph(xml_escape(str(r["session_type"] or "Lecture")), cell),
-                              Paragraph(xml_escape(str(r["status"] or "-")), ok_style if present else bad_style)])
-            status_bg.append(("BACKGROUND", (5, i), (5, i), colors.HexColor("#e6f6ec" if present else "#fde8e8")))
-        hist_table = Table(hist_data, colWidths=[25*mm, 61*mm, 17*mm, 28*mm, 25*mm, 20*mm], repeatRows=1)
-        hist_table.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#07579a")),
-            ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
-            ("INNERGRID", (0,0), (-1,-1), 0.35, colors.HexColor("#dbe4ee")),
-            ("ALIGN", (2,1), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-            ("TOPPADDING", (0,0), (-1,-1), 4), ("BOTTOMPADDING", (0,0), (-1,-1), 4),
-            ("LEFTPADDING", (0,0), (-1,-1), 3), ("RIGHTPADDING", (0,0), (-1,-1), 3),
-        ] + status_bg))
-        story += [hist_table]
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer.getvalue()
+def build_subject_wise_pdf(student, report, threshold=75.0):
+    """Share / email / public-link PDF: the website design, every subject on its own page."""
+    return build_pdf(dict(student), report, style=PDF_STYLE, threshold=threshold, college=COLLEGE_NAME,
+                     logo_path=BASE_DIR / "static" / LOGO_FILE)
 
 
 @app.route("/send-report/<int:student_id>/pdf")
@@ -4258,13 +3824,14 @@ def build_subject_wise_pdf(student, report):
 def send_report_pdf(student_id):
     db = get_db()
     data = load_student_for_report(db, student_id)
+    threshold = attendance_threshold_value(db)
     db.close()
     if not data:
         return Response("Student not found or not allowed.", status=404, mimetype="text/plain")
     student, contact, report = data
     if not report:
         return Response("No attendance records for this student yet.", status=404, mimetype="text/plain")
-    pdf = build_subject_wise_pdf(student, report)
+    pdf = build_subject_wise_pdf(student, report, threshold)
     safe = re.sub(r"[^A-Za-z0-9_-]+", "_", str(student["prn"] or student["roll_no"] or student["id"])).strip("_") or "student"
     log_activity("Report PDF generated", f"Attendance PDF generated for student {student['roll_no']}")
     return Response(pdf, mimetype="application/pdf",
@@ -4289,11 +3856,12 @@ def public_report_pdf(token):
                         status=410, mimetype="text/plain")
     db = get_db()
     data = load_student_for_report(db, student_id)
+    threshold = attendance_threshold_value(db)
     db.close()
     if not data or not data[2]:
         return Response("Report not available.", status=404, mimetype="text/plain")
     student, contact, report = data
-    pdf = build_subject_wise_pdf(student, report)
+    pdf = build_subject_wise_pdf(student, report, threshold)
     safe = re.sub(r"[^A-Za-z0-9_-]+", "_", str(student["prn"] or student["roll_no"] or student["id"])).strip("_") or "student"
     return Response(pdf, mimetype="application/pdf",
                     headers={"Content-Disposition": f"inline; filename=Attendance_Report_{safe}.pdf",

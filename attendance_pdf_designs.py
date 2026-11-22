@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas as rl_canvas
@@ -99,9 +99,9 @@ def numbered_canvas(footer):
     return NC
 
 
-def make_footer(line_col, text_col, font="Helvetica", left_pad=14*mm, right_pad=14*mm, lift=0):
+def make_footer(line_col, text_col, font="Helvetica", left_pad=14*mm, right_pad=14*mm, lift=0, page_w=None):
     def footer(c, n, total):
-        w = A4[0]
+        w = page_w or A4[0]
         c.setStrokeColor(line_col); c.setLineWidth(0.6)
         c.line(left_pad, 14*mm + lift, w - right_pad, 14*mm + lift)
         c.setFont(font, 7.5); c.setFillColor(text_col)
@@ -758,5 +758,118 @@ def build_pdf(student, report, style="classic", threshold=75, college="Personal 
         sub = dict(sub)  # oldest lecture first, like a register
         sub["history"] = sorted(sub.get("history") or [], key=lambda r: (str(r["attendance_date"]), int(r["lecture_no"] or 0)))
         story += design(student, sub, ctx)
+    doc.build(story, canvasmaker=numbered_canvas(footer))
+    return buf.getvalue()
+
+
+
+# ====================================================== class / subject summary
+def build_class_report_pdf(rows, *, college, logo_path=None, threshold=75, tagline="Student Attendance Management System",
+                           meta=None, student_history=None, history_title="", signature="Teacher Signature|(Subject Incharge)"):
+    """Admin / teacher report: one row per student, in the same 'dashboard' design as the student reports.
+
+    rows            : list of dicts  prn, name, course, year, total, present, absent, pct
+    meta            : list of (label, value) pairs shown in the information card
+    student_history : optional list of lecture rows (attendance_date, lecture_no, lecture_time, session_type, status)
+    """
+    TEAL, MINT = H("#0f766e"), H("#ecfdf5")
+    page = landscape(A4)
+    ml = mr = 12 * mm
+    W = page[0] - ml - mr
+    thr = float(threshold)
+    stamp = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y")
+    buf = io.BytesIO()
+    doc = BaseDocTemplate(buf, pagesize=page, title="Attendance Report", author=str(college))
+    frame = Frame(ml, 20 * mm, W, page[1] - 12 * mm - 20 * mm, leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
+
+    def top_strip(c, d):
+        c.setFillColor(TEAL); c.rect(0, page[1] - 3 * mm, page[0], 3 * mm, fill=1, stroke=0)
+    doc.addPageTemplates([PageTemplate(id="p", frames=[frame], onPage=top_strip)])
+
+    big = P("cb", fontName="Helvetica-Bold", fontSize=16, leading=19, textColor=colors.white)
+    small = P("cs", fontSize=9, leading=12, textColor=H("#a7f3d0"))
+    hdr = Table([[LogoMark(16 * mm, college, logo_path, TEAL, colors.white),
+                  [Paragraph(esc(str(college)), big), Paragraph(esc(str(tagline)).upper() + "  |  ATTENDANCE REPORT", small)],
+                  Paragraph(f"<b>CLASS REPORT</b><br/>{stamp}", P("cr", fontSize=9, leading=13, textColor=colors.white, alignment=TA_RIGHT))]],
+                colWidths=[23 * mm, W - 23 * mm - 50 * mm, 50 * mm])
+    hdr.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), TEAL), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                             ("LEFTPADDING", (0, 0), (0, 0), 6 * mm), ("RIGHTPADDING", (-1, 0), (-1, 0), 6 * mm),
+                             ("TOPPADDING", (0, 0), (-1, -1), 4.5 * mm), ("BOTTOMPADDING", (0, 0), (-1, -1), 4.5 * mm),
+                             ("LINEBELOW", (0, 0), (-1, -1), 3, H("#2dd4bf"))]))
+    story = [hdr, Spacer(1, 5 * mm)]
+
+    # information card (3 columns)
+    lab = P("ml", fontName="Helvetica-Bold", fontSize=7, leading=9, textColor=H("#0f766e"))
+    val = P("mv", fontName="Helvetica-Bold", fontSize=10, leading=13, textColor=H("#0f172a"))
+    cells = [[Paragraph(esc(str(a)).upper(), lab), Paragraph(esc(str(b)), val)] for a, b in (meta or [])]
+    while len(cells) % 3:
+        cells.append("")
+    if cells:
+        grid = [cells[i:i + 3] for i in range(0, len(cells), 3)]
+        card = Table(grid, colWidths=[W / 3.0] * 3)
+        card.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), MINT), ("BOX", (0, 0), (-1, -1), 0.6, H("#cfe8e3")),
+                                  ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                                  ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
+        story += [card, Spacer(1, 4 * mm)]
+
+    # summary tiles
+    counted = [r for r in rows if int(r["total"] or 0) > 0]
+    avg = (sum(float(r["pct"]) for r in counted) / len(counted)) if counted else 0.0
+    meeting = sum(1 for r in counted if float(r["pct"]) >= thr)
+    below = len(counted) - meeting
+
+    def tile(num, cap, col):
+        return [Paragraph(f'<font size="20" color="{hx(col)}"><b>{num}</b></font>', P("tn", leading=24, alignment=TA_CENTER)),
+                Paragraph(cap, P("tc", fontSize=7.5, leading=10, textColor=H("#64748b"), alignment=TA_CENTER))]
+    tiles = Table([[tile(len(rows), "STUDENTS", H("#0f172a")), tile(f"{avg:.1f}%", "AVERAGE ATTENDANCE", TEAL),
+                    tile(meeting, f"MEETING {thr:g}% LIMIT", GREEN), tile(below, f"BELOW {thr:g}% LIMIT", RED)]],
+                  colWidths=[W / 4.0] * 4, rowHeights=[19 * mm])
+    tiles.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), MINT), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                               ("INNERGRID", (0, 0), (-1, -1), 2, colors.white), ("BOX", (0, 0), (-1, -1), 2, colors.white)]))
+    story += [tiles, Spacer(1, 5 * mm)]
+
+    # student table
+    hd = P("th", fontName="Helvetica-Bold", fontSize=8.5, leading=11, textColor=colors.white, alignment=TA_CENTER)
+    hl = P("thl", fontName="Helvetica-Bold", fontSize=8.5, leading=11, textColor=colors.white)
+    c1 = P("c1", fontSize=8.8, leading=11, textColor=H("#1e2b3a"))
+    cc = P("cc", fontSize=8.8, leading=11, textColor=H("#1e2b3a"), alignment=TA_CENTER)
+    widths = [10 * mm, 36 * mm, 56 * mm, 22 * mm, 22 * mm, 22 * mm, 58 * mm]
+    widths.append(W - sum(widths))
+    data = [[Paragraph(t, hl if i in (1, 2) else hd) for i, t in enumerate(["#", "PRN", "Student name", "Total", "Present", "Absent", "Attendance", "Status"])]]
+    for i, r in enumerate(rows, start=1):
+        total, pct = int(r["total"] or 0), float(r["pct"] or 0)
+        if total:
+            label, tone, _bg = verdict(pct, thr)
+        else:
+            label, tone = "NO DATA", H("#64748b")
+        bar = Table([[ThinBar(pct, thr, tone, 34 * mm) if total else "",
+                      Paragraph(f'<font color="{hx(tone)}"><b>{pct:.1f}%</b></font>', P("pp", fontSize=8.8, leading=11))]],
+                    colWidths=[38 * mm, 16 * mm])
+        bar.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                 ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+        data.append([Paragraph(str(i), cc), Paragraph(esc(str(r["prn"] or "-")), c1), Paragraph(esc(str(r["name"] or "")), c1),
+                     Paragraph(str(total), cc), Paragraph(str(r["present"]), cc), Paragraph(str(r["absent"]), cc), bar, pill(label, tone, 40 * mm)])
+    if len(data) == 1:
+        data.append([Paragraph("", cc), Paragraph("No students found for the selected filters.", c1)] + [Paragraph("", cc)] * 6)
+    table = Table(data, colWidths=widths, repeatRows=1)
+    table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), TEAL), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                               ("ROWBACKGROUNDS", (0, 1), (-1, -1), [H("#ffffff"), H("#f0fdfa")]),
+                               ("LINEBELOW", (0, 1), (-1, -1), 0.4, H("#cfe8e3")), ("BOX", (0, 0), (-1, -1), 0.6, H("#cfe8e3")),
+                               ("TOPPADDING", (0, 0), (-1, -1), 3.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5)]))
+    story.append(table)
+
+    if student_history is not None:
+        sect = P("se", fontName="Helvetica-Bold", fontSize=10.5, leading=13, textColor=TEAL, spaceBefore=4, spaceAfter=3)
+        story += [Spacer(1, 6 * mm), Paragraph(esc(history_title or "LECTURE-WISE HISTORY").upper(), sect)]
+        hist = sorted(student_history, key=lambda r: (str(r["attendance_date"]), int(r["lecture_no"] or 0)))
+        story.append(history_table({"history": hist}, W, head_bg=TEAL, zebra=("#ffffff", "#f0fdfa"), line="#cfe8e3"))
+
+    top, bottom = (signature.split("|") + [""])[:2]
+    sig = Table([["", [Paragraph("______________________________", P("sg", fontSize=9, leading=12, alignment=TA_CENTER)),
+                       Paragraph(f"<b>{esc(top)}</b><br/>{esc(bottom)}", P("sg2", fontSize=8.5, leading=11, alignment=TA_CENTER, textColor=H("#334155")))]]],
+                colWidths=[W - 90 * mm, 90 * mm])
+    sig.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+    story += [Spacer(1, 10 * mm), KeepTogether(sig)]
+    footer = make_footer(H("#99d5cb"), H("#64748b"), page_w=page[0], left_pad=ml, right_pad=mr)
     doc.build(story, canvasmaker=numbered_canvas(footer))
     return buf.getvalue()
