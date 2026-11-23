@@ -3271,6 +3271,92 @@ def export_pdf():
                                  student_history=history_rows, history_title=history_title)
     return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": "attachment; filename=attendance_report.pdf"})
 
+
+@app.route("/reports/export-subject-pdfs.zip")
+@login_required
+@staff_required
+def export_subject_pdfs():
+    """Download one attendance-statement PDF per subject in a ZIP archive."""
+    db = get_db()
+    try:
+        year = request.args.get("year", "").strip()
+        semester = request.args.get("semester", type=int) or 0
+        session_type = request.args.get("session_type", "")
+        batch = request.args.get("batch", "")
+        student_id = request.args.get("student_id", type=int)
+        from_date = request.args.get("from_date", "").strip()
+        to_date = request.args.get("to_date", "").strip()
+        if session_type not in ("", "Lecture", "Practical"):
+            session_type = ""
+        if batch not in ("", "Batch A", "Batch B", "Batch C", "Batch D") or session_type != "Practical":
+            batch = ""
+
+        subject_where, subject_params = ["1=1"], []
+        if session.get("role") == "teacher":
+            subject_where.append("sub.id IN (SELECT subject_id FROM subject_teachers WHERE teacher_id=?)")
+            subject_params.append(session["user_id"])
+        if year:
+            subject_where.append("sub.year=?"); subject_params.append(year)
+        if semester:
+            subject_where.append("sub.semester=?"); subject_params.append(semester)
+        if session_type:
+            subject_where.append("COALESCE(sub.session_type,'Lecture')=?"); subject_params.append(session_type)
+        subjects_for_pdf = db.execute(
+            "SELECT sub.id,sub.code,sub.name,sub.year,sub.semester FROM subjects sub WHERE " +
+            " AND ".join(subject_where) + " ORDER BY sub.code,sub.name", subject_params
+        ).fetchall()
+
+        student_where, student_params = ["1=1"], []
+        if student_id:
+            student_where.append("s.id=?"); student_params.append(student_id)
+        if year:
+            student_where.append("s.year=?"); student_params.append(year)
+        if semester:
+            student_where.append("s.semester=?"); student_params.append(semester)
+        if session_type == "Practical" and batch:
+            student_where.append("COALESCE(s.batch,'')=?"); student_params.append(batch)
+        threshold = attendance_threshold_value(db)
+        archive = io.BytesIO()
+        created = 0
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for sub in subjects_for_pdf:
+                attendance_on, attendance_params = ["a.subject_id=?", "a.student_id=s.id"], [sub["id"]]
+                if session_type:
+                    attendance_on.append("COALESCE(a.session_type,'Lecture')=?"); attendance_params.append(session_type)
+                if session_type == "Practical" and batch:
+                    attendance_on.append("COALESCE(a.batch,'')=?"); attendance_params.append(batch)
+                if from_date:
+                    attendance_on.append("a.attendance_date>=?"); attendance_params.append(from_date)
+                if to_date:
+                    attendance_on.append("a.attendance_date<=?"); attendance_params.append(to_date)
+                query = ("SELECT s.prn,s.name,s.course,s.year, COUNT(a.id) total, "
+                    "COALESCE(SUM(CASE WHEN a.status='Present' THEN 1 ELSE 0 END),0) present, "
+                    "COALESCE(SUM(CASE WHEN a.status='Absent' THEN 1 ELSE 0 END),0) absent, "
+                    "CASE WHEN COUNT(a.id)=0 THEN 0 ELSE ROUND(100.0*SUM(CASE WHEN a.status='Present' THEN 1 ELSE 0 END)/COUNT(a.id),1) END pct "
+                    + "FROM students s LEFT JOIN attendance a ON " + " AND ".join(attendance_on)
+                    + " WHERE " + " AND ".join(student_where) + " GROUP BY s.id")
+                rows = db.execute(query, attendance_params + student_params).fetchall()
+                rows = sorted(rows, key=_prn_sort_key)
+                meta = [("Course", "B.Pharm"), ("Year", year or "All Classes"),
+                        ("Semester", f"Semester {semester}" if semester else "All Semesters"),
+                        ("Subject", f"{sub['code']} - {sub['name']}"),
+                        ("Session", session_type or "All"),
+                        ("Date range", f"{from_date or '—'} to {to_date or '—'}")]
+                pdf_bytes = build_class_statement_pdf([dict(r) for r in rows], college=COLLEGE_NAME,
+                    logo_path=BASE_DIR / "static" / LOGO_FILE, threshold=threshold, meta=meta)
+                safe_code = re.sub(r"[^A-Za-z0-9_-]+", "_", str(sub["code"] or sub["id"])).strip("_") or str(sub["id"])
+                safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", str(sub["name"] or "subject")).strip("_")[:55]
+                zf.writestr(f"{safe_code}_{safe_name or 'subject'}_attendance.pdf", pdf_bytes)
+                created += 1
+        if created == 0:
+            return Response("No subjects found for the selected filters.", status=404, mimetype="text/plain")
+        archive.seek(0)
+        log_activity("Report exported", f"Subject-wise PDF reports downloaded ({created} files)")
+        return Response(archive.getvalue(), mimetype="application/zip",
+            headers={"Content-Disposition": "attachment; filename=subject_wise_attendance_reports.zip"})
+    finally:
+        db.close()
+
 @app.post("/activity-log/clear")
 @login_required
 @admin_required
