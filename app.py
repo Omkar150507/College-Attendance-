@@ -64,11 +64,7 @@ from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from config import COLLEGE_NAME, COLLEGE_TAGLINE, LOGO_FILE
-try:
-    from config import PDF_STYLE
-except ImportError:
-    PDF_STYLE = "dashboard"
-from attendance_pdf_designs import build_pdf, build_class_report_pdf
+from attendance_statement_pdf import build_statement_pdf, build_class_statement_pdf
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -222,17 +218,168 @@ SESSION_HOURS = 12      # normal login lasts 12 hours
 REMEMBER_DAYS = 14      # "Remember Me" login lasts 14 days
 
 
+LOGIN_LOCK_FAILS = 5            # wrong passwords from one IP for one username before it is locked
+LOGIN_LOCK_GLOBAL_FAILS = 25    # wrong passwords for one username from all IPs together
+LOGIN_LOCK_MINUTES = 15
+LOGIN_WINDOW_MINUTES = 30
+
+
+def client_ip():
+    return (request.remote_addr or "")[:64]
+
+
+def create_login_session(user_id, ttl_seconds):
+    """Server-side record of a login, so a logout or password change really ends it."""
+    token = secrets.token_urlsafe(32)
+    now = datetime.utcnow()
+    db = get_db()
+    try:
+        db.execute("DELETE FROM login_sessions WHERE expires_at < ?", (now.isoformat(),))
+        db.execute("INSERT INTO login_sessions(token,user_id,created_at,expires_at) VALUES(?,?,?,?)",
+                   (token, user_id, now.isoformat(), (now + timedelta(seconds=ttl_seconds)).isoformat()))
+        db.commit()
+    finally:
+        db.close()
+    return token
+
+
+def revoke_login_sessions(user_id, keep_token=None):
+    db = get_db()
+    try:
+        if keep_token:
+            db.execute("DELETE FROM login_sessions WHERE user_id=? AND token<>?", (user_id, keep_token))
+        else:
+            db.execute("DELETE FROM login_sessions WHERE user_id=?", (user_id,))
+        db.commit()
+    finally:
+        db.close()
+
+
+def lockout_minutes_left(db, username):
+    """Minutes a username is still locked (0 = not locked). Expired locks are cleaned up."""
+    uname = (username or "").strip().lower()[:80]
+    now = datetime.utcnow()
+    left = 0
+    for key in (f"u:{uname}|ip:{client_ip()}", f"u:{uname}"):
+        row = db.execute("SELECT locked_until FROM login_attempts WHERE key=?", (key,)).fetchone()
+        if row and row["locked_until"]:
+            until = datetime.fromisoformat(row["locked_until"])
+            if until > now:
+                left = max(left, int((until - now).total_seconds() // 60) + 1)
+            else:
+                db.execute("DELETE FROM login_attempts WHERE key=?", (key,))
+                db.commit()
+    return left
+
+
+def record_failed_login(username, user_id=None):
+    uname = (username or "").strip().lower()[:80]
+    ip = client_ip()
+    now = datetime.utcnow()
+    newly_locked = False
+    db = get_db()
+    try:
+        for key, limit, minutes in ((f"u:{uname}|ip:{ip}", LOGIN_LOCK_FAILS, LOGIN_LOCK_MINUTES),
+                                    (f"u:{uname}", LOGIN_LOCK_GLOBAL_FAILS, LOGIN_LOCK_MINUTES * 2)):
+            row = db.execute("SELECT fails, first_at FROM login_attempts WHERE key=?", (key,)).fetchone()
+            in_window = bool(row and row["first_at"] and now - datetime.fromisoformat(row["first_at"]) < timedelta(minutes=LOGIN_WINDOW_MINUTES))
+            fails = int(row["fails"]) + 1 if in_window else 1
+            first_at = row["first_at"] if in_window else now.isoformat()
+            locked_until = (now + timedelta(minutes=minutes)).isoformat() if fails >= limit else None
+            if fails == limit:
+                newly_locked = True
+            if row:
+                db.execute("UPDATE login_attempts SET fails=?, first_at=?, locked_until=? WHERE key=?", (fails, first_at, locked_until, key))
+            else:
+                db.execute("INSERT INTO login_attempts(key,fails,first_at,locked_until) VALUES(?,?,?,?)", (key, fails, first_at, locked_until))
+        db.commit()
+    finally:
+        db.close()
+    log_activity_for(user_id, "Failed login", f"username={uname} ip={ip}")
+    if newly_locked:
+        log_activity_for(user_id, "Login locked", f"username={uname} ip={ip} locked for {LOGIN_LOCK_MINUTES} minutes")
+        alert_admins("Security alert: login locked",
+                     f"Too many wrong passwords for '{uname}' from {ip}. Logging in is blocked for {LOGIN_LOCK_MINUTES} minutes.\n"
+                     "If this was not you or a student, check Admin > Activity Log.")
+
+
+def clear_failed_logins(username):
+    uname = (username or "").strip().lower()[:80]
+    db = get_db()
+    try:
+        db.execute("DELETE FROM login_attempts WHERE key=?", (f"u:{uname}|ip:{client_ip()}",))
+        db.commit()
+    finally:
+        db.close()
+
+
+def alert_admins(subject, body):
+    """Best-effort security email to every admin that has an address."""
+    try:
+        if not email_is_configured():
+            return
+        db = get_db()
+        try:
+            admins = db.execute("SELECT email FROM users WHERE role='admin' AND email<>''").fetchall()
+        finally:
+            db.close()
+        for a in admins:
+            send_email_message(a["email"], "Admin", f"{COLLEGE_NAME} - {subject}", body)
+    except Exception as exc:  # an alert must never break a login
+        app.logger.warning("Security alert email failed: %s", exc)
+
+
+def safe_cell(value):
+    """Stops spreadsheet formula injection: text that starts with = + - @ is stored as plain text."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
+class SafeCsvWriter:
+    def __init__(self, writer):
+        self._writer = writer
+
+    def writerow(self, row):
+        self._writer.writerow([safe_cell(c) for c in row])
+
+
+def sanitize_workbook(wb):
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                v = cell.value
+                if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+                    cell.data_type = "s"   # literal text, Excel never evaluates it
+
+
 @app.before_request
 def enforce_session_lifetime():
-    """Log users out when their login time limit is over."""
-    if "user_id" in session:
-        try:
-            expires = float(session.get("exp", 0) or 0)
-        except (TypeError, ValueError):
-            expires = 0
-        if expires < time.time():
-            session.clear()
-            flash("Your session has expired. Please log in again.", "error")
+    """Log users out when their time limit is over, after logout/password change, or when the account is blocked."""
+    if "user_id" not in session or request.endpoint == "static":
+        return
+    try:
+        valid = float(session.get("exp", 0) or 0) >= time.time()
+    except (TypeError, ValueError):
+        valid = False
+    if valid:
+        valid = False
+        sid = session.get("sid")
+        if sid:
+            db = get_db()
+            try:
+                row = db.execute("""SELECT s.expires_at, u.approved, u.role, u.student_id FROM login_sessions s
+                                    JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.user_id=?""", (sid, session["user_id"])).fetchone()
+                if row and row["expires_at"] >= datetime.utcnow().isoformat() and int(row["approved"] or 0) == 1:
+                    valid = True
+                    if row["role"] == "student" and row["student_id"]:
+                        b = db.execute("SELECT blocked FROM students WHERE id=?", (row["student_id"],)).fetchone()
+                        valid = bool(b) and int(b["blocked"] or 0) == 0
+            finally:
+                db.close()
+    if not valid:
+        session.clear()
+        flash("Your session has expired. Please log in again.", "error")
 
 
 ICON_PATHS = {
@@ -763,6 +910,18 @@ def init_db():
     ensure_column(db, "users", "totp_enabled", "INTEGER NOT NULL DEFAULT 0")
     ensure_column(db, "users", "totp_recovery", "TEXT DEFAULT ''")
     archive_id_def = "SERIAL PRIMARY KEY" if db.postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    db.execute("""CREATE TABLE IF NOT EXISTS login_sessions (
+        token TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+    )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS login_attempts (
+        key TEXT PRIMARY KEY,
+        fails INTEGER NOT NULL DEFAULT 0,
+        first_at TEXT,
+        locked_until TEXT
+    )""")
     db.execute(f"""CREATE TABLE IF NOT EXISTS email_log (
         id {archive_id_def},
         student_id INTEGER,
@@ -874,7 +1033,7 @@ def add_security_headers(response):
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(self), microphone=(), geolocation=()"
-    response.headers["Cache-Control"] = "no-store" if session.get("user_id") else "no-cache"
+    response.headers.setdefault("Cache-Control", "no-store" if session.get("user_id") else "no-cache")
     response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
     response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
     if request.is_secure:
@@ -1039,7 +1198,11 @@ def complete_login(user, remember=False):
     session.update(user_id=user["id"], username=user["username"], role=role,
                    full_name=user["full_name"] or user["username"], student_id=user["student_id"])
     session.permanent = bool(remember)
-    session["exp"] = time.time() + (REMEMBER_DAYS * 86400 if remember else SESSION_HOURS * 3600)
+    ttl = REMEMBER_DAYS * 86400 if remember else SESSION_HOURS * 3600
+    session["exp"] = time.time() + ttl
+    session["sid"] = create_login_session(user["id"], ttl)
+    if role in ("admin", "teacher"):
+        log_activity_for(user["id"], "Login", f"{role} login from {client_ip()}")
     if role == "student":
         return redirect(url_for("student_dashboard"))
     return redirect(url_for("dashboard"))
@@ -1058,6 +1221,11 @@ def login():
         if selected_role not in ("admin", "teacher", "student"):
             selected_role = "admin"
         db = get_db()
+        wait = lockout_minutes_left(db, username)
+        if wait:
+            db.close()
+            flash(f"Too many failed attempts. Please try again in {wait} minute(s).", "error")
+            return render_template("login.html", selected_role=selected_role)
         user = db.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
         if user and check_password_hash(user["password"], password):
             account_role = "teacher" if user["role"] == "hod" else user["role"]
@@ -1082,8 +1250,10 @@ def login():
                 session.clear()
                 session["pending_2fa"] = {"uid": int(user["id"]), "remember": remember, "at": time.time(), "tries": 0}
                 return redirect(url_for("login_2fa"))
+            clear_failed_logins(username)
             return complete_login(user, remember)
         db.close()
+        record_failed_login(username, user["id"] if user else None)
         flash("Invalid username or password.", "error")
         return render_template("login.html", selected_role=selected_role)
     return render_template("login.html", selected_role="admin")
@@ -1160,6 +1330,7 @@ def login_2fa():
             session.pop("pending_2fa", None)
             log_activity_for(user["id"], "Admin login", "Logged in with 2-step verification")
             return complete_login(user, remember)
+        log_activity_for(pending.get("uid"), "Failed 2-step code", f"ip={client_ip()}")
         pending["tries"] = int(pending.get("tries", 0)) + 1
         session["pending_2fa"] = pending
         if pending["tries"] >= 5:
@@ -1455,6 +1626,8 @@ def reset_password(token):
         db = get_db()
         db.execute("UPDATE users SET password=? WHERE id=?", (generate_password_hash(password), user["id"]))
         db.commit(); db.close()
+        revoke_login_sessions(user["id"])
+        log_activity_for(user["id"], "Password reset", "Password changed with an email reset link")
         flash("Password changed successfully. You can now log in with your new password.", "success")
         return redirect(url_for("login"))
     return render_template("reset_password.html", token=token)
@@ -1462,7 +1635,15 @@ def reset_password(token):
 
 @app.route("/logout", methods=["POST"])
 def logout():
-    """Log out only through a CSRF-protected POST request."""
+    """Log out only through a CSRF-protected POST request. The server-side login record is deleted too."""
+    sid = session.get("sid")
+    if sid:
+        db = get_db()
+        try:
+            db.execute("DELETE FROM login_sessions WHERE token=?", (sid,))
+            db.commit()
+        finally:
+            db.close()
     session.clear()
     return redirect(url_for("login"))
 
@@ -2119,8 +2300,8 @@ def student_my_report_pdf():
                              "pct": float(r["pct"] or 0), "history": by_key.get(r["code"], [])})
     if not report_items:
         return Response("No attendance records found for the selected filters.", status=404, mimetype="text/plain")
-    pdf_bytes = build_pdf(dict(student), report_items, style=PDF_STYLE, threshold=threshold, college=COLLEGE_NAME,
-                          logo_path=BASE_DIR / "static" / LOGO_FILE)
+    pdf_bytes = build_statement_pdf(dict(student), report_items, college=COLLEGE_NAME,
+                                    logo_path=BASE_DIR / "static" / LOGO_FILE, threshold=threshold)
     safe_prn = re.sub(r"[^A-Za-z0-9_-]+", "_", str(student["prn"] or student["id"])).strip("_") or "student"
     suffix = ""
     if selected_subject_name:
@@ -2924,6 +3105,7 @@ def reports():
 @login_required
 @staff_required
 def export_csv():
+    log_activity("Report exported", "CSV attendance report downloaded")
     db = get_db(); subject_id = request.args.get("subject_id", type=int); student_id = request.args.get("student_id", type=int)
     year = request.args.get("year", "")
     semester = request.args.get("semester", type=int) or 0
@@ -2960,7 +3142,7 @@ def export_csv():
         WHERE {student_condition}
         GROUP BY s.id""", on_params + student_params).fetchall()
     subject_summary = db.execute(f"""SELECT sub.code,sub.name,COUNT(a.id) total, COALESCE(SUM(CASE WHEN a.status='Present' THEN 1 ELSE 0 END),0) present, COALESCE(SUM(CASE WHEN a.status='Absent' THEN 1 ELSE 0 END),0) absent, CASE WHEN COUNT(a.id)=0 THEN 0 ELSE ROUND(100.0*SUM(CASE WHEN a.status='Present' THEN 1 ELSE 0 END)/COUNT(a.id),1) END pct FROM subjects sub LEFT JOIN attendance a ON a.subject_id=sub.id AND {on_condition} GROUP BY sub.id ORDER BY sub.code""", on_params).fetchall()
-    db.close(); out = io.StringIO(); writer = csv.writer(out)
+    db.close(); out = io.StringIO(); writer = SafeCsvWriter(csv.writer(out))
     writer.writerow(["SUBJECT-WISE SUMMARY"])
     writer.writerow(["Subject","Total Attendance","Present","Absent","Attendance Percentage"])
     for r in subject_summary: writer.writerow([f"{r['code']} - {r['name']}",r['total'],r['present'],r['absent'],f"{r['pct']}%"] )
@@ -2976,6 +3158,7 @@ def export_csv():
 @login_required
 @staff_required
 def export_pdf():
+    log_activity("Report exported", "PDF attendance report downloaded")
     db = get_db()
     subject_id = request.args.get("subject_id", type=int)
     student_id = request.args.get("student_id", type=int)
@@ -3083,8 +3266,8 @@ def export_pdf():
     if student_id and subject_id:
         history_rows = [dict(h) for h in student_history]
         history_title = f"Lecture-wise history - {selected_student_name or 'Student'}"
-    pdf = build_class_report_pdf([dict(r) for r in rows], college=COLLEGE_NAME, logo_path=BASE_DIR / "static" / LOGO_FILE,
-                                 threshold=threshold, tagline="Student Attendance Management System", meta=meta,
+    pdf = build_class_statement_pdf([dict(r) for r in rows], college=COLLEGE_NAME, logo_path=BASE_DIR / "static" / LOGO_FILE,
+                                 threshold=threshold, meta=meta,
                                  student_history=history_rows, history_title=history_title)
     return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": "attachment; filename=attendance_report.pdf"})
 
@@ -3172,9 +3355,11 @@ def profile():
         full_name=request.form.get("full_name","").strip(); mobile=request.form.get("mobile","").strip(); new_password=request.form.get("new_password","")
         if new_password:
             err=validate_password(new_password)
+            if not check_password_hash(user["password"], request.form.get("current_password","")):
+                err="Your current password is not correct."
             if err: flash(err,"error")
             else:
-                db.execute("UPDATE users SET full_name=?,mobile=?,password=? WHERE id=?",(full_name,mobile,generate_password_hash(new_password),session["user_id"])); db.commit(); session["full_name"]=full_name; log_activity("Profile updated","Name/mobile/password updated"); flash("Profile updated.","success")
+                db.execute("UPDATE users SET full_name=?,mobile=?,password=? WHERE id=?",(full_name,mobile,generate_password_hash(new_password),session["user_id"])); db.commit(); session["full_name"]=full_name; log_activity("Password changed","Password changed from profile"); revoke_login_sessions(session["user_id"], session.get("sid")); flash("Profile updated.","success")
         else:
             db.execute("UPDATE users SET full_name=?,mobile=? WHERE id=?",(full_name,mobile,session["user_id"])); db.commit(); session["full_name"]=full_name; log_activity("Profile updated","Name/mobile updated"); flash("Profile updated.","success")
         user=db.execute("SELECT * FROM users WHERE id=?",(session["user_id"],)).fetchone()
@@ -3200,6 +3385,7 @@ def settings():
 @login_required
 @staff_required
 def export_xlsx():
+    log_activity("Report exported", "Excel attendance report downloaded")
     if not OPENPYXL_AVAILABLE:
         return Response("Excel export is not installed on this server.", status=500, mimetype="text/plain")
     db = get_db(); subject_id=request.args.get("subject_id", type=int); student_id=request.args.get("student_id", type=int)
@@ -3295,6 +3481,7 @@ def export_xlsx():
     ws.page_setup.orientation = "landscape"
     ws.page_setup.fitToWidth = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
+    sanitize_workbook(wb)
     out=io.BytesIO(); wb.save(out); out.seek(0)
     return Response(out.getvalue(),mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",headers={"Content-Disposition":"attachment; filename=attendance_summary.xlsx"})
 
@@ -3493,6 +3680,8 @@ def restore_from_backup(db, payload):
         for row in rows:
             if not isinstance(row, dict):
                 raise ValueError(f"Invalid data in table {table}.")
+            if table == "users" and "password" not in row:
+                row["password"] = generate_password_hash(secrets.token_urlsafe(24))  # emailed backups have no passwords: use Forgot Password
             cols = tuple(c for c in row.keys() if c in columns[table] and _SAFE_COLUMN.match(c))
             if not cols:
                 continue
@@ -3567,7 +3756,7 @@ BACKUP_TABLES = ["departments", "students", "users", "subjects", "subject_teache
                  "student_academic_history", "attendance_corrections", "deleted_students", "activity_logs"]
 
 
-def build_backup_zip():
+def build_backup_zip(strip_credentials=False):
     db = get_db()
     payload = {"college": COLLEGE_NAME, "generated_at": datetime.utcnow().isoformat() + "Z", "tables": {}}
     for table in BACKUP_TABLES:
@@ -3575,6 +3764,8 @@ def build_backup_zip():
         if table == "users":
             for r in rows:  # never put 2-step secrets in a backup file
                 r.pop("totp_secret", None); r.pop("totp_recovery", None)
+                if strip_credentials:  # the emailed copy never contains password hashes
+                    r.pop("password", None); r["totp_enabled"] = 0
         payload["tables"][table] = rows
     db.close()
     out = io.BytesIO()
@@ -3590,6 +3781,7 @@ def build_backup_zip():
 @login_required
 @admin_required
 def backup_database():
+    log_activity("Backup downloaded", "Full backup zip downloaded")
     data, _ = build_backup_zip()
     return Response(data, mimetype="application/zip", headers={"Content-Disposition": "attachment; filename=personal_attendance_backup.zip"})
 
@@ -3613,13 +3805,13 @@ def cron_backup():
         return Response("No backup email address. Set BACKUP_EMAIL.", status=400, mimetype="text/plain")
     if not email_is_configured():
         return Response("Email is not configured.", status=503, mimetype="text/plain")
-    data, stamp = build_backup_zip()
+    data, stamp = build_backup_zip(strip_credentials=True)
     if len(data) > 20 * 1024 * 1024:
         return Response("Backup is larger than 20 MB, too big to email.", status=413, mimetype="text/plain")
     day = now_ist().strftime("%Y-%m-%d")
     try:
         send_email_message(recipient, "Admin", f"{COLLEGE_NAME} - Attendance Backup {day}",
-                           f"Automatic attendance backup generated at {stamp}.\nKeep this file safe: it contains student and account data.",
+                           f"Automatic attendance backup generated at {stamp}.\nKeep this file safe: it contains student data. It does not contain passwords (use Admin > Backup for a full copy).",
                            None, [(f"personal_attendance_backup_{day}.zip", data)])
     except Exception as exc:
         app.logger.warning("Backup email failed: %s", exc)
@@ -3814,8 +4006,8 @@ def report_text(student, report, with_names=True):
 
 def build_subject_wise_pdf(student, report, threshold=75.0):
     """Share / email / public-link PDF: the website design, every subject on its own page."""
-    return build_pdf(dict(student), report, style=PDF_STYLE, threshold=threshold, college=COLLEGE_NAME,
-                     logo_path=BASE_DIR / "static" / LOGO_FILE)
+    return build_statement_pdf(dict(student), report, college=COLLEGE_NAME, logo_path=BASE_DIR / "static" / LOGO_FILE,
+                               threshold=threshold)
 
 
 @app.route("/send-report/<int:student_id>/pdf")
@@ -3842,7 +4034,7 @@ def report_link_serializer():
     return URLSafeTimedSerializer(app.secret_key, salt="attendance-report-link")
 
 
-REPORT_LINK_MAX_AGE = 7 * 24 * 3600  # links expire after 7 days
+REPORT_LINK_MAX_AGE = 3 * 24 * 3600  # links expire after 3 days
 
 
 @app.route("/r/<token>")
@@ -3890,7 +4082,7 @@ def send_report(student_id):
         link = url_for("public_report_pdf", token=token, _external=True)
         msg = (f"Dear {student['name']}, your attendance report (Roll No {student['roll_no']}). "
                f"Overall: {report_overall(report):.1f}%.\n"
-               f"Download your subject-wise PDF report (link valid for 7 days):\n{link}")
+               f"Download your subject-wise PDF report (link valid for 3 days):\n{link}")
         wa_link = f"https://wa.me/{num}?text={quote(msg)}"
     return render_template("send_report.html", student=student, report=report, overall=report_overall(report),
                            mobile=mobile, wa_link=wa_link, email=email,
@@ -4165,7 +4357,7 @@ def qr_attendance():
         return redirect(url_for('qr_attendance'))
 
 
-QR_WINDOW_SECONDS = 30  # the QR on the teacher's screen changes every 30 seconds
+QR_WINDOW_SECONDS = 20  # the QR on the teacher's screen changes every 20 seconds (a scan is valid for 20-40 s)
 
 
 def qr_rotating_code(token, window=None):
@@ -4212,6 +4404,7 @@ def qr_image():
 
 
 @app.route('/qr/scan',methods=['GET','POST'])
+@limiter.limit("20 per minute", methods=["POST"])
 @login_required
 def qr_scan():
     if session.get('role')!='student':
