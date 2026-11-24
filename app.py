@@ -3156,6 +3156,14 @@ def export_csv():
     return Response(out.getvalue(), mimetype="text/csv", headers={"Content-Disposition":"attachment; filename=attendance_summary.csv"})
 
 
+@app.route("/reports/export-subject-pdfs")
+@login_required
+@staff_required
+def export_subject_pdfs():
+    """Compatibility endpoint: an older/newer reports.html may link here. Sends the same filters to the normal PDF export."""
+    return redirect(url_for("export_pdf", **{k: v for k, v in request.args.items() if v not in (None, "")}))
+
+
 def filtered_student_report_items(db, student_id, subject_id, semester, session_type, batch, from_date, to_date):
     """One student's report, grouped subject-wise, following the admin/teacher report filters.
     All subjects -> every subject that has records; one subject selected -> only that subject."""
