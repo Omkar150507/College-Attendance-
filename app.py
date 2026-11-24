@@ -3154,6 +3154,46 @@ def export_csv():
     return Response(out.getvalue(), mimetype="text/csv", headers={"Content-Disposition":"attachment; filename=attendance_summary.csv"})
 
 
+def filtered_student_report_items(db, student_id, subject_id, semester, session_type, batch, from_date, to_date):
+    """One student's report, grouped subject-wise, following the admin/teacher report filters.
+    All subjects -> every subject that has records; one subject selected -> only that subject."""
+    where = ["a.student_id=?"]; params = [student_id]
+    if session.get("role") != "admin":
+        where.append("a.subject_id IN (SELECT subject_id FROM subject_teachers WHERE teacher_id=?)"); params.append(session["user_id"])
+    if subject_id:
+        where.append("a.subject_id=?"); params.append(subject_id)
+    if semester:
+        where.append("COALESCE(sub.semester,1)=?"); params.append(semester)
+    if session_type:
+        where.append("COALESCE(a.session_type,'Lecture')=?"); params.append(session_type)
+    if session_type == "Practical" and batch:
+        where.append("COALESCE(a.batch,'')=?"); params.append(batch)
+    if from_date:
+        where.append("a.attendance_date>=?"); params.append(from_date)
+    if to_date:
+        where.append("a.attendance_date<=?"); params.append(to_date)
+    rows = db.execute(f"""SELECT sub.id subject_id, sub.code, sub.name subject_name, COALESCE(sub.semester,1) semester,
+        a.attendance_date, COALESCE(a.lecture_no,1) lecture_no, COALESCE(a.lecture_time,'') lecture_time,
+        COALESCE(a.session_type,'Lecture') session_type, COALESCE(a.batch,'') batch, a.status
+        FROM attendance a JOIN subjects sub ON sub.id=a.subject_id
+        WHERE {' AND '.join(where)}
+        ORDER BY sub.code, a.attendance_date, COALESCE(a.lecture_no,1)""", params).fetchall()
+    grouped = {}
+    for r in rows:
+        g = grouped.setdefault(int(r["subject_id"]), {"semester": int(r["semester"] or 1), "code": r["code"], "name": r["subject_name"], "history": []})
+        g["history"].append(dict(r))
+    if subject_id and int(subject_id) not in grouped:
+        sub = db.execute("SELECT id,code,name,COALESCE(semester,1) semester FROM subjects WHERE id=?", (subject_id,)).fetchone()
+        if sub:
+            grouped[int(sub["id"])] = {"semester": int(sub["semester"] or 1), "code": sub["code"], "name": sub["name"], "history": []}
+    items = []
+    for g in sorted(grouped.values(), key=lambda x: str(x["code"])):
+        total = len(g["history"]); present = sum(1 for h in g["history"] if h["status"] == "Present")
+        g.update({"total": total, "present": present, "absent": total - present, "pct": round(100.0 * present / total, 1) if total else 0.0})
+        items.append(g)
+    return items
+
+
 @app.route("/reports/export.pdf")
 @login_required
 @staff_required
@@ -3198,8 +3238,6 @@ def export_pdf():
         student_where.append("s.id=?"); student_params.append(student_id)
     if year:
         student_where.append("s.year=?"); student_params.append(year)
-    if semester:
-        student_where.append("s.semester=?"); student_params.append(semester)
     if session_type == "Practical" and batch:
         student_where.append("COALESCE(s.batch,'')=?"); student_params.append(batch)
 
@@ -3254,7 +3292,21 @@ def export_pdf():
     status_rows = db.execute(f"SELECT DISTINCT COALESCE(a.teacher_status,'Scheduled teacher present') teacher_status FROM attendance a WHERE {on_condition} ORDER BY teacher_status", on_params).fetchall()
     teacher_status_text = ", ".join(r["teacher_status"] for r in status_rows) or "—"
     threshold = attendance_threshold_value(db)
+    student_statement = None
+    if student_id:
+        stu = db.execute("SELECT * FROM students WHERE id=?", (student_id,)).fetchone()
+        if stu:
+            student_statement = (dict(stu), filtered_student_report_items(db, student_id, subject_id, semester, session_type, batch, from_date, to_date))
     db.close()
+    if student_statement:
+        stu, items = student_statement
+        try:
+            pdf = build_statement_pdf(stu, items, college=COLLEGE_NAME, logo_path=BASE_DIR / "static" / LOGO_FILE, threshold=threshold)
+        except Exception:
+            app.logger.exception("Student PDF export failed")
+            return Response("PDF could not be created. Please try again.", status=500, mimetype="text/plain")
+        safe_prn = re.sub(r"[^A-Za-z0-9_-]+", "_", str(stu.get("prn") or stu.get("roll_no") or stu.get("id"))).strip("_") or "student"
+        return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": f"attachment; filename=attendance_report_{safe_prn}.pdf"})
     class_name = year if year else "All Classes"
     meta = [("Course", "B.Pharm"), ("Year", class_name), ("Semester", f"Semester {semester}" if semester else "All Semesters"),
             ("Subject", subject_name), ("Session", session_type or "All"),
@@ -3266,96 +3318,14 @@ def export_pdf():
     if student_id and subject_id:
         history_rows = [dict(h) for h in student_history]
         history_title = f"Lecture-wise history - {selected_student_name or 'Student'}"
-    pdf = build_class_statement_pdf([dict(r) for r in rows], college=COLLEGE_NAME, logo_path=BASE_DIR / "static" / LOGO_FILE,
-                                 threshold=threshold, meta=meta,
-                                 student_history=history_rows, history_title=history_title)
-    return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": "attachment; filename=attendance_report.pdf"})
-
-
-@app.route("/reports/export-subject-pdfs.zip")
-@login_required
-@staff_required
-def export_subject_pdfs():
-    """Download one attendance-statement PDF per subject in a ZIP archive."""
-    db = get_db()
     try:
-        year = request.args.get("year", "").strip()
-        semester = request.args.get("semester", type=int) or 0
-        session_type = request.args.get("session_type", "")
-        batch = request.args.get("batch", "")
-        student_id = request.args.get("student_id", type=int)
-        from_date = request.args.get("from_date", "").strip()
-        to_date = request.args.get("to_date", "").strip()
-        if session_type not in ("", "Lecture", "Practical"):
-            session_type = ""
-        if batch not in ("", "Batch A", "Batch B", "Batch C", "Batch D") or session_type != "Practical":
-            batch = ""
-
-        subject_where, subject_params = ["1=1"], []
-        if session.get("role") == "teacher":
-            subject_where.append("sub.id IN (SELECT subject_id FROM subject_teachers WHERE teacher_id=?)")
-            subject_params.append(session["user_id"])
-        if year:
-            subject_where.append("sub.year=?"); subject_params.append(year)
-        if semester:
-            subject_where.append("sub.semester=?"); subject_params.append(semester)
-        if session_type:
-            subject_where.append("COALESCE(sub.session_type,'Lecture')=?"); subject_params.append(session_type)
-        subjects_for_pdf = db.execute(
-            "SELECT sub.id,sub.code,sub.name,sub.year,sub.semester FROM subjects sub WHERE " +
-            " AND ".join(subject_where) + " ORDER BY sub.code,sub.name", subject_params
-        ).fetchall()
-
-        student_where, student_params = ["1=1"], []
-        if student_id:
-            student_where.append("s.id=?"); student_params.append(student_id)
-        if year:
-            student_where.append("s.year=?"); student_params.append(year)
-        if semester:
-            student_where.append("s.semester=?"); student_params.append(semester)
-        if session_type == "Practical" and batch:
-            student_where.append("COALESCE(s.batch,'')=?"); student_params.append(batch)
-        threshold = attendance_threshold_value(db)
-        archive = io.BytesIO()
-        created = 0
-        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for sub in subjects_for_pdf:
-                attendance_on, attendance_params = ["a.subject_id=?", "a.student_id=s.id"], [sub["id"]]
-                if session_type:
-                    attendance_on.append("COALESCE(a.session_type,'Lecture')=?"); attendance_params.append(session_type)
-                if session_type == "Practical" and batch:
-                    attendance_on.append("COALESCE(a.batch,'')=?"); attendance_params.append(batch)
-                if from_date:
-                    attendance_on.append("a.attendance_date>=?"); attendance_params.append(from_date)
-                if to_date:
-                    attendance_on.append("a.attendance_date<=?"); attendance_params.append(to_date)
-                query = ("SELECT s.prn,s.name,s.course,s.year, COUNT(a.id) total, "
-                    "COALESCE(SUM(CASE WHEN a.status='Present' THEN 1 ELSE 0 END),0) present, "
-                    "COALESCE(SUM(CASE WHEN a.status='Absent' THEN 1 ELSE 0 END),0) absent, "
-                    "CASE WHEN COUNT(a.id)=0 THEN 0 ELSE ROUND(100.0*SUM(CASE WHEN a.status='Present' THEN 1 ELSE 0 END)/COUNT(a.id),1) END pct "
-                    + "FROM students s LEFT JOIN attendance a ON " + " AND ".join(attendance_on)
-                    + " WHERE " + " AND ".join(student_where) + " GROUP BY s.id")
-                rows = db.execute(query, attendance_params + student_params).fetchall()
-                rows = sorted(rows, key=_prn_sort_key)
-                meta = [("Course", "B.Pharm"), ("Year", year or "All Classes"),
-                        ("Semester", f"Semester {semester}" if semester else "All Semesters"),
-                        ("Subject", f"{sub['code']} - {sub['name']}"),
-                        ("Session", session_type or "All"),
-                        ("Date range", f"{from_date or '—'} to {to_date or '—'}")]
-                pdf_bytes = build_class_statement_pdf([dict(r) for r in rows], college=COLLEGE_NAME,
-                    logo_path=BASE_DIR / "static" / LOGO_FILE, threshold=threshold, meta=meta)
-                safe_code = re.sub(r"[^A-Za-z0-9_-]+", "_", str(sub["code"] or sub["id"])).strip("_") or str(sub["id"])
-                safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", str(sub["name"] or "subject")).strip("_")[:55]
-                zf.writestr(f"{safe_code}_{safe_name or 'subject'}_attendance.pdf", pdf_bytes)
-                created += 1
-        if created == 0:
-            return Response("No subjects found for the selected filters.", status=404, mimetype="text/plain")
-        archive.seek(0)
-        log_activity("Report exported", f"Subject-wise PDF reports downloaded ({created} files)")
-        return Response(archive.getvalue(), mimetype="application/zip",
-            headers={"Content-Disposition": "attachment; filename=subject_wise_attendance_reports.zip"})
-    finally:
-        db.close()
+        pdf = build_class_statement_pdf([dict(r) for r in rows], college=COLLEGE_NAME, logo_path=BASE_DIR / "static" / LOGO_FILE,
+                                     threshold=threshold, meta=meta,
+                                     student_history=history_rows, history_title=history_title)
+    except Exception:
+        app.logger.exception("Class PDF export failed")
+        return Response("PDF could not be created. Please try again.", status=500, mimetype="text/plain")
+    return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": "attachment; filename=attendance_report.pdf"})
 
 @app.post("/activity-log/clear")
 @login_required
