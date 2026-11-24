@@ -1181,7 +1181,7 @@ def internal_error(error):
         "<h2>Something went wrong</h2><p>The page could not be loaded. Please try again in a minute. "
         "If it keeps happening, tell the administrator this error code:</p>"
         f"<p style='background:#f5f8fb;border:1px solid #dbe4ee;border-radius:8px;padding:10px;font-family:monospace'>{xml_escape(type(original).__name__)}"
-        + (f"<br><small>{xml_escape(str(original)[:300])}</small>" if type(original).__name__ == "BuildError" else "")
+        + (f"<br><small>{xml_escape(str(original)[:300])}</small>" if (type(original).__name__ == "BuildError" or session.get("role") in ("admin", "teacher")) else "")
         + "</p>"
         "<p><a href='/'>Back to login</a></p></body></html>"
     )
@@ -3312,9 +3312,9 @@ def export_pdf():
         stu, items = student_statement
         try:
             pdf = build_statement_pdf(stu, items, college=COLLEGE_NAME, logo_path=BASE_DIR / "static" / LOGO_FILE, threshold=threshold)
-        except Exception:
+        except Exception as exc:
             app.logger.exception("Student PDF export failed")
-            return Response("PDF could not be created. Please try again.", status=500, mimetype="text/plain")
+            return Response(f"PDF could not be created: {type(exc).__name__}: {str(exc)[:300]}", status=500, mimetype="text/plain")
         safe_prn = re.sub(r"[^A-Za-z0-9_-]+", "_", str(stu.get("prn") or stu.get("roll_no") or stu.get("id"))).strip("_") or "student"
         return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": f"attachment; filename=attendance_report_{safe_prn}.pdf"})
     class_name = year if year else "All Classes"
@@ -3332,9 +3332,9 @@ def export_pdf():
         pdf = build_class_statement_pdf([dict(r) for r in rows], college=COLLEGE_NAME, logo_path=BASE_DIR / "static" / LOGO_FILE,
                                      threshold=threshold, meta=meta,
                                      student_history=history_rows, history_title=history_title)
-    except Exception:
+    except Exception as exc:
         app.logger.exception("Class PDF export failed")
-        return Response("PDF could not be created. Please try again.", status=500, mimetype="text/plain")
+        return Response(f"PDF could not be created: {type(exc).__name__}: {str(exc)[:300]}", status=500, mimetype="text/plain")
     return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": "attachment; filename=attendance_report.pdf"})
 
 @app.post("/activity-log/clear")
