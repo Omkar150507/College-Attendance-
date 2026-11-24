@@ -1180,7 +1180,9 @@ def internal_error(error):
         "<title>Something went wrong</title></head><body style='font-family:Arial,sans-serif;max-width:560px;margin:12vh auto;padding:0 18px;color:#173f63'>"
         "<h2>Something went wrong</h2><p>The page could not be loaded. Please try again in a minute. "
         "If it keeps happening, tell the administrator this error code:</p>"
-        f"<p style='background:#f5f8fb;border:1px solid #dbe4ee;border-radius:8px;padding:10px;font-family:monospace'>{xml_escape(type(original).__name__)}</p>"
+        f"<p style='background:#f5f8fb;border:1px solid #dbe4ee;border-radius:8px;padding:10px;font-family:monospace'>{xml_escape(type(original).__name__)}"
+        + (f"<br><small>{xml_escape(str(original)[:300])}</small>" if type(original).__name__ == "BuildError" else "")
+        + "</p>"
         "<p><a href='/'>Back to login</a></p></body></html>"
     )
     return Response(page, status=500, mimetype="text/html")
