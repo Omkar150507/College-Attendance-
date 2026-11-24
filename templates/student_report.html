@@ -107,7 +107,7 @@
                 <h2>Student Details</h2>
                 <p class="muted">Your registered academic information.</p>
             </div>
-            {% if summary is defined %}<a class="button primary" href="{{ url_for('student_my_report_pdf', session=selected_session, semester=selected_semester, subject_id=selected_subject) }}">{{ icon('download', 16) }} Export PDF</a>{% endif %}
+            {% if summary is defined %}<a class="button primary" href="{{ url_for('student_my_report_pdf', session=selected_session, semester=selected_semester, subject_id=selected_subject) }}">{{ icon('download', 16) }} Export PDF</a>{% elif session.get('role') in ('admin','teacher') %}<a class="button primary" href="{{ url_for('export_pdf', student_id=student.id) }}">{{ icon('download', 16) }} Export PDF</a>{% endif %}
         </div>
         <div class="profile-grid">
             <div class="profile-item"><span>Name</span><b>{{ student.name }}</b></div>
