@@ -3297,10 +3297,10 @@ def export_pdf():
 
     teacher_rows = db.execute(f"SELECT DISTINCT u.full_name,u.username FROM attendance a LEFT JOIN users u ON u.id=a.scheduled_teacher_id WHERE {on_condition} AND a.scheduled_teacher_id IS NOT NULL ORDER BY u.full_name,u.username", on_params).fetchall()
     conducted_rows = db.execute(f"SELECT DISTINCT u.full_name,u.username FROM attendance a LEFT JOIN users u ON u.id=a.conducted_by_teacher_id WHERE {on_condition} AND a.conducted_by_teacher_id IS NOT NULL ORDER BY u.full_name,u.username", on_params).fetchall()
-    scheduled_teacher_text = ", ".join((r["full_name"] or r["username"]) for r in teacher_rows) or "—"
-    conducted_teacher_text = ", ".join((r["full_name"] or r["username"]) for r in conducted_rows) or "—"
+    scheduled_teacher_text = ", ".join(str(n) for n in dict.fromkeys((r["full_name"] or r["username"]) for r in teacher_rows) if n) or "—"
+    conducted_teacher_text = ", ".join(str(n) for n in dict.fromkeys((r["full_name"] or r["username"]) for r in conducted_rows) if n) or "—"
     status_rows = db.execute(f"SELECT DISTINCT COALESCE(a.teacher_status,'Scheduled teacher present') teacher_status FROM attendance a WHERE {on_condition} ORDER BY teacher_status", on_params).fetchall()
-    teacher_status_text = ", ".join(r["teacher_status"] for r in status_rows) or "—"
+    teacher_status_text = ", ".join(str(r["teacher_status"]) for r in status_rows if r["teacher_status"]) or "—"
     threshold = attendance_threshold_value(db)
     student_statement = None
     if student_id:
