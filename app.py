@@ -28,6 +28,7 @@ import smtplib
 import re
 import math
 import secrets
+import gzip
 from markupsafe import Markup
 import time
 import hmac
@@ -218,6 +219,62 @@ SESSION_HOURS = 12      # normal login lasts 12 hours
 REMEMBER_DAYS = 14      # "Remember Me" login lasts 14 days
 
 
+_TTL_CACHE = {}
+
+
+def ttl_get(key):
+    hit = _TTL_CACHE.get(key)
+    if hit and hit[0] > time.time():
+        return hit[1]
+    _TTL_CACHE.pop(key, None)
+    return None
+
+
+def ttl_set(key, value, seconds):
+    if len(_TTL_CACHE) > 3000:
+        now = time.time()
+        for k in [k for k, v in _TTL_CACHE.items() if v[0] <= now]:
+            _TTL_CACHE.pop(k, None)
+        if len(_TTL_CACHE) > 3000:
+            _TTL_CACHE.clear()
+    _TTL_CACHE[key] = (time.time() + seconds, value)
+
+
+def ttl_drop_user(user_id, keep_sid=None):
+    for k in [k for k in _TTL_CACHE if k[0] in ("sid", "g") and user_id in k and k[1] != keep_sid]:
+        _TTL_CACHE.pop(k, None)
+
+
+SESSION_CACHE_SECONDS = 20   # a logout or password change on another device is noticed within this time (instantly on the same device)
+try:
+    ASSET_VERSION = str(int((BASE_DIR / "static" / "style.css").stat().st_mtime))
+except OSError:
+    ASSET_VERSION = "1"
+app.jinja_env.globals["asset_v"] = ASSET_VERSION
+COMPRESSIBLE = ("text/html", "text/css", "application/javascript", "text/javascript", "application/json", "image/svg+xml", "text/plain")
+
+
+@app.after_request
+def speed_headers(response):
+    """Gzip text responses (the reports page can be hundreds of KB) and let browsers keep static files."""
+    if request.endpoint == "static":
+        response.headers["Cache-Control"] = "public, max-age=604800"
+    try:
+        if request.endpoint == "static" and response.status_code == 200 and response.mimetype in COMPRESSIBLE:
+            response.direct_passthrough = False   # static files are streamed; read them so they can be compressed
+        if (response.status_code == 200 and not response.direct_passthrough and "Content-Encoding" not in response.headers
+                and "gzip" in request.headers.get("Accept-Encoding", "")
+                and response.mimetype in COMPRESSIBLE):
+            data = response.get_data()
+            if len(data) > 800:
+                response.set_data(gzip.compress(data, 5))
+                response.headers["Content-Encoding"] = "gzip"
+                response.headers.add("Vary", "Accept-Encoding")
+    except Exception:  # compression is only an optimisation
+        pass
+    return response
+
+
 LOGIN_LOCK_FAILS = 5            # wrong passwords from one IP for one username before it is locked
 LOGIN_LOCK_GLOBAL_FAILS = 25    # wrong passwords for one username from all IPs together
 LOGIN_LOCK_MINUTES = 15
@@ -244,6 +301,7 @@ def create_login_session(user_id, ttl_seconds):
 
 
 def revoke_login_sessions(user_id, keep_token=None):
+    ttl_drop_user(user_id, keep_token)
     db = get_db()
     try:
         if keep_token:
@@ -365,6 +423,8 @@ def enforce_session_lifetime():
     if valid:
         valid = False
         sid = session.get("sid")
+        if sid and ttl_get(("sid", sid, session["user_id"])):
+            return
         if sid:
             db = get_db()
             try:
@@ -377,6 +437,8 @@ def enforce_session_lifetime():
                         valid = bool(b) and int(b["blocked"] or 0) == 0
             finally:
                 db.close()
+            if valid:
+                ttl_set(("sid", sid, session["user_id"]), True, SESSION_CACHE_SECONDS)
     if not valid:
         session.clear()
         flash("Your session has expired. Please log in again.", "error")
@@ -1141,24 +1203,33 @@ def log_activity(action, details=""):
 @app.context_processor
 def inject_globals():
     unread_notifications = 0
-    if session.get("user_id"):
-        try:
-            db = get_db()
-            unread_notifications = db.execute("SELECT COUNT(*) c FROM notifications WHERE user_id=? AND is_read=0", (session["user_id"],)).fetchone()["c"]
-            db.close()
-        except Exception:
-            pass
-    today_timetable=[]
-    try:
-        db=get_db()
-        if session.get("role")=="student":
-            st=current_student(db); today_timetable=get_timetable_rows(db, role="student", user_id=session.get("user_id"), student=st) if st else []
-        elif session.get("role")=="teacher": today_timetable=get_timetable_rows(db, role="teacher", user_id=session.get("user_id"))
-        elif session.get("role")=="admin": today_timetable=get_timetable_rows(db, role="admin", user_id=session.get("user_id"))
-        db.close()
-    except Exception:
-        try: db.close()
-        except Exception: pass
+    today_timetable = []
+    uid = session.get("user_id")
+    if uid:
+        fresh = request.path.startswith("/notifications") or request.method != "GET"
+        cached = None if fresh else ttl_get(("g", session.get("role"), uid, today_ist().isoformat()))
+        if cached is not None:
+            unread_notifications, today_timetable = cached
+        else:
+            db = None
+            try:
+                db = get_db()
+                unread_notifications = db.execute("SELECT COUNT(*) c FROM notifications WHERE user_id=? AND is_read=0", (uid,)).fetchone()["c"]
+                role = session.get("role")
+                if role == "student":
+                    st = current_student(db)
+                    today_timetable = get_timetable_rows(db, role="student", user_id=uid, student=st) if st else []
+                elif role in ("teacher", "admin"):
+                    today_timetable = get_timetable_rows(db, role=role, user_id=uid)
+                ttl_set(("g", session.get("role"), uid, today_ist().isoformat()), (unread_notifications, today_timetable), 15)
+            except Exception:
+                pass
+            finally:
+                try:
+                    if db is not None:
+                        db.close()
+                except Exception:
+                    pass
     return {
         "today_timetable": today_timetable,
         "today": today_ist().isoformat(),
@@ -1180,9 +1251,7 @@ def internal_error(error):
         "<title>Something went wrong</title></head><body style='font-family:Arial,sans-serif;max-width:560px;margin:12vh auto;padding:0 18px;color:#173f63'>"
         "<h2>Something went wrong</h2><p>The page could not be loaded. Please try again in a minute. "
         "If it keeps happening, tell the administrator this error code:</p>"
-        f"<p style='background:#f5f8fb;border:1px solid #dbe4ee;border-radius:8px;padding:10px;font-family:monospace'>{xml_escape(type(original).__name__)}"
-        + (f"<br><small>{xml_escape(str(original)[:300])}</small>" if (type(original).__name__ == "BuildError" or session.get("role") in ("admin", "teacher")) else "")
-        + "</p>"
+        f"<p style='background:#f5f8fb;border:1px solid #dbe4ee;border-radius:8px;padding:10px;font-family:monospace'>{xml_escape(type(original).__name__)}</p>"
         "<p><a href='/'>Back to login</a></p></body></html>"
     )
     return Response(page, status=500, mimetype="text/html")
@@ -1640,6 +1709,7 @@ def logout():
     """Log out only through a CSRF-protected POST request. The server-side login record is deleted too."""
     sid = session.get("sid")
     if sid:
+        _TTL_CACHE.pop(("sid", sid, session.get("user_id")), None)
         db = get_db()
         try:
             db.execute("DELETE FROM login_sessions WHERE token=?", (sid,))
@@ -3080,7 +3150,9 @@ def reports():
     detail_condition = " AND ".join(detail_where)
     detail = db.execute(f"""SELECT a.attendance_date,a.lecture_no,a.lecture_time,COALESCE(a.session_type,'Lecture') session_type,COALESCE(a.batch,'') batch,s.prn,s.name,sub.code,sub.name subject,a.status
         FROM attendance a JOIN students s ON s.id=a.student_id JOIN subjects sub ON sub.id=a.subject_id
-        WHERE {detail_condition} ORDER BY a.attendance_date DESC,a.lecture_no""", detail_params).fetchall()
+        WHERE {detail_condition} ORDER BY a.attendance_date DESC,a.lecture_no LIMIT 501""", detail_params).fetchall()
+    detail_truncated = len(detail) > 500
+    detail = detail[:500]
     detail = sorted(detail, key=_prn_sort_key)
     detail = sorted(detail, key=lambda r: (str(r["attendance_date"] or ""), int(r["lecture_no"] or 0)), reverse=True)
     years = [r["year"] for r in db.execute("SELECT DISTINCT year FROM students WHERE year IS NOT NULL AND year<>'' ORDER BY year").fetchall()]
@@ -3100,7 +3172,7 @@ def reports():
         if y not in years: years.append(y)
     db.close()
     return render_template("reports.html", subjects=subjects, students=students, years=years, summary=summary, detail=detail, subject_summary=subject_summary,
-                           subject_id=subject_id, student_id=student_id, year=year, semester=semester, semesters_by_year=SEMESTERS_BY_YEAR, session_type=session_type, batch=batch, batch_options=["Batch A","Batch B","Batch C","Batch D"], from_date=from_date, to_date=to_date)
+                           subject_id=subject_id, student_id=student_id, year=year, semester=semester, semesters_by_year=SEMESTERS_BY_YEAR, session_type=session_type, batch=batch, batch_options=["Batch A","Batch B","Batch C","Batch D"], from_date=from_date, to_date=to_date, detail_truncated=detail_truncated)
 
 
 @app.route("/reports/export.csv")
@@ -3156,24 +3228,25 @@ def export_csv():
     return Response(out.getvalue(), mimetype="text/csv", headers={"Content-Disposition":"attachment; filename=attendance_summary.csv"})
 
 
-@app.route("/reports/export-subject-pdfs")
-@login_required
-@staff_required
-def export_subject_pdfs():
-    """Compatibility endpoint: an older/newer reports.html may link here. Sends the same filters to the normal PDF export."""
-    return redirect(url_for("export_pdf", **{k: v for k, v in request.args.items() if v not in (None, "")}))
+def teacher_names_text(rows):
+    """Comma separated teacher names. A teacher that no longer exists (deleted account) shows as 'Removed teacher'."""
+    names = [(r["full_name"] or r["username"] or "Removed teacher") for r in rows]
+    return ", ".join(dict.fromkeys(names)) or "—"
 
 
-def filtered_student_report_items(db, student_id, subject_id, semester, session_type, batch, from_date, to_date):
-    """One student's report, grouped subject-wise, following the admin/teacher report filters.
-    All subjects -> every subject that has records; one subject selected -> only that subject."""
-    where = ["a.student_id=?"]; params = [student_id]
-    if session.get("role") != "admin":
-        where.append("a.subject_id IN (SELECT subject_id FROM subject_teachers WHERE teacher_id=?)"); params.append(session["user_id"])
+def statement_items(db, student_id, subject_id=None, semester=0, session_type="", batch="", from_date="", to_date="", teacher_id=None):
+    """One student's attendance grouped by subject, for the Attendance Statement PDF.
+    Returns (student_row, items). teacher_id limits the result to the subjects assigned to that teacher."""
+    student = db.execute("SELECT * FROM students WHERE id=?", (student_id,)).fetchone()
+    if not student:
+        return None, []
+    where, params = ["a.student_id=?"], [student_id]
+    if teacher_id:
+        where.append("a.subject_id IN (SELECT subject_id FROM subject_teachers WHERE teacher_id=?)"); params.append(teacher_id)
     if subject_id:
         where.append("a.subject_id=?"); params.append(subject_id)
     if semester:
-        where.append("COALESCE(sub.semester,1)=?"); params.append(semester)
+        where.append("a.subject_id IN (SELECT id FROM subjects WHERE semester=?)"); params.append(semester)
     if session_type:
         where.append("COALESCE(a.session_type,'Lecture')=?"); params.append(session_type)
     if session_type == "Practical" and batch:
@@ -3182,26 +3255,26 @@ def filtered_student_report_items(db, student_id, subject_id, semester, session_
         where.append("a.attendance_date>=?"); params.append(from_date)
     if to_date:
         where.append("a.attendance_date<=?"); params.append(to_date)
-    rows = db.execute(f"""SELECT sub.id subject_id, sub.code, sub.name subject_name, COALESCE(sub.semester,1) semester,
-        a.attendance_date, COALESCE(a.lecture_no,1) lecture_no, COALESCE(a.lecture_time,'') lecture_time,
-        COALESCE(a.session_type,'Lecture') session_type, COALESCE(a.batch,'') batch, a.status
-        FROM attendance a JOIN subjects sub ON sub.id=a.subject_id
-        WHERE {' AND '.join(where)}
-        ORDER BY sub.code, a.attendance_date, COALESCE(a.lecture_no,1)""", params).fetchall()
+    rows = db.execute(f"""SELECT sub.id subject_pk, sub.code, sub.name, COALESCE(sub.semester,0) semester, a.attendance_date,
+            COALESCE(a.lecture_no,1) lecture_no, COALESCE(a.lecture_time,'') lecture_time,
+            COALESCE(a.session_type,'Lecture') session_type, a.status
+        FROM attendance a JOIN subjects sub ON sub.id=a.subject_id WHERE {' AND '.join(where)}
+        ORDER BY sub.code, a.attendance_date, COALESCE(a.lecture_no,0), COALESCE(a.lecture_time,'')""", params).fetchall()
     grouped = {}
     for r in rows:
-        g = grouped.setdefault(int(r["subject_id"]), {"semester": int(r["semester"] or 1), "code": r["code"], "name": r["subject_name"], "history": []})
-        g["history"].append(dict(r))
-    if subject_id and int(subject_id) not in grouped:
-        sub = db.execute("SELECT id,code,name,COALESCE(semester,1) semester FROM subjects WHERE id=?", (subject_id,)).fetchone()
-        if sub:
-            grouped[int(sub["id"])] = {"semester": int(sub["semester"] or 1), "code": sub["code"], "name": sub["name"], "history": []}
-    items = []
-    for g in sorted(grouped.values(), key=lambda x: str(x["code"])):
-        total = len(g["history"]); present = sum(1 for h in g["history"] if h["status"] == "Present")
-        g.update({"total": total, "present": present, "absent": total - present, "pct": round(100.0 * present / total, 1) if total else 0.0})
-        items.append(g)
-    return items
+        g = grouped.setdefault(r["subject_pk"], {"semester": r["semester"] or student["semester"] or "", "code": r["code"], "name": r["name"],
+                                                  "total": 0, "present": 0, "absent": 0, "history": []})
+        g["total"] += 1
+        if r["status"] == "Present":
+            g["present"] += 1
+        else:
+            g["absent"] += 1
+        g["history"].append({"attendance_date": r["attendance_date"], "lecture_no": r["lecture_no"], "lecture_time": r["lecture_time"],
+                             "session_type": r["session_type"], "status": r["status"]})
+    items = sorted(grouped.values(), key=lambda g: str(g["code"]))
+    for g in items:
+        g["pct"] = round(100.0 * g["present"] / g["total"], 1) if g["total"] else 0.0
+    return student, items
 
 
 @app.route("/reports/export.pdf")
@@ -3248,11 +3321,24 @@ def export_pdf():
         student_where.append("s.id=?"); student_params.append(student_id)
     if year:
         student_where.append("s.year=?"); student_params.append(year)
+    if semester:
+        student_where.append("s.semester=?"); student_params.append(semester)
     if session_type == "Practical" and batch:
         student_where.append("COALESCE(s.batch,'')=?"); student_params.append(batch)
 
     on_condition = " AND ".join(on_where)
     student_condition = " AND ".join(student_where)
+    if student_id:
+        # A single student was chosen: export that student's own statement (all subjects, or only the chosen subject).
+        threshold = attendance_threshold_value(db)
+        student_row, items = statement_items(db, student_id, subject_id=subject_id, semester=semester, session_type=session_type,
+                                             batch=batch, from_date=from_date, to_date=to_date,
+                                             teacher_id=None if session.get("role") == "admin" else session["user_id"])
+        db.close()
+        if not student_row or not items:
+            return Response("No attendance records found for this student with the selected filters.", status=404, mimetype="text/plain")
+        pdf = build_statement_pdf(dict(student_row), items, college=COLLEGE_NAME, logo_path=BASE_DIR / "static" / LOGO_FILE, threshold=threshold)
+        return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": "attachment; filename=attendance_report.pdf"})
     rows = db.execute(f"""SELECT s.prn,s.name,s.course,s.year,
         COUNT(a.id) total,
         COALESCE(SUM(CASE WHEN a.status='Present' THEN 1 ELSE 0 END),0) present,
@@ -3297,26 +3383,12 @@ def export_pdf():
 
     teacher_rows = db.execute(f"SELECT DISTINCT u.full_name,u.username FROM attendance a LEFT JOIN users u ON u.id=a.scheduled_teacher_id WHERE {on_condition} AND a.scheduled_teacher_id IS NOT NULL ORDER BY u.full_name,u.username", on_params).fetchall()
     conducted_rows = db.execute(f"SELECT DISTINCT u.full_name,u.username FROM attendance a LEFT JOIN users u ON u.id=a.conducted_by_teacher_id WHERE {on_condition} AND a.conducted_by_teacher_id IS NOT NULL ORDER BY u.full_name,u.username", on_params).fetchall()
-    scheduled_teacher_text = ", ".join(str(n) for n in dict.fromkeys((r["full_name"] or r["username"]) for r in teacher_rows) if n) or "—"
-    conducted_teacher_text = ", ".join(str(n) for n in dict.fromkeys((r["full_name"] or r["username"]) for r in conducted_rows) if n) or "—"
+    scheduled_teacher_text = teacher_names_text(teacher_rows)
+    conducted_teacher_text = teacher_names_text(conducted_rows)
     status_rows = db.execute(f"SELECT DISTINCT COALESCE(a.teacher_status,'Scheduled teacher present') teacher_status FROM attendance a WHERE {on_condition} ORDER BY teacher_status", on_params).fetchall()
-    teacher_status_text = ", ".join(str(r["teacher_status"]) for r in status_rows if r["teacher_status"]) or "—"
+    teacher_status_text = ", ".join(r["teacher_status"] for r in status_rows) or "—"
     threshold = attendance_threshold_value(db)
-    student_statement = None
-    if student_id:
-        stu = db.execute("SELECT * FROM students WHERE id=?", (student_id,)).fetchone()
-        if stu:
-            student_statement = (dict(stu), filtered_student_report_items(db, student_id, subject_id, semester, session_type, batch, from_date, to_date))
     db.close()
-    if student_statement:
-        stu, items = student_statement
-        try:
-            pdf = build_statement_pdf(stu, items, college=COLLEGE_NAME, logo_path=BASE_DIR / "static" / LOGO_FILE, threshold=threshold)
-        except Exception as exc:
-            app.logger.exception("Student PDF export failed")
-            return Response(f"PDF could not be created: {type(exc).__name__}: {str(exc)[:300]}", status=500, mimetype="text/plain")
-        safe_prn = re.sub(r"[^A-Za-z0-9_-]+", "_", str(stu.get("prn") or stu.get("roll_no") or stu.get("id"))).strip("_") or "student"
-        return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": f"attachment; filename=attendance_report_{safe_prn}.pdf"})
     class_name = year if year else "All Classes"
     meta = [("Course", "B.Pharm"), ("Year", class_name), ("Semester", f"Semester {semester}" if semester else "All Semesters"),
             ("Subject", subject_name), ("Session", session_type or "All"),
@@ -3328,13 +3400,9 @@ def export_pdf():
     if student_id and subject_id:
         history_rows = [dict(h) for h in student_history]
         history_title = f"Lecture-wise history - {selected_student_name or 'Student'}"
-    try:
-        pdf = build_class_statement_pdf([dict(r) for r in rows], college=COLLEGE_NAME, logo_path=BASE_DIR / "static" / LOGO_FILE,
-                                     threshold=threshold, meta=meta,
-                                     student_history=history_rows, history_title=history_title)
-    except Exception as exc:
-        app.logger.exception("Class PDF export failed")
-        return Response(f"PDF could not be created: {type(exc).__name__}: {str(exc)[:300]}", status=500, mimetype="text/plain")
+    pdf = build_class_statement_pdf([dict(r) for r in rows], college=COLLEGE_NAME, logo_path=BASE_DIR / "static" / LOGO_FILE,
+                                 threshold=threshold, meta=meta,
+                                 student_history=history_rows, history_title=history_title)
     return Response(pdf, mimetype="application/pdf", headers={"Content-Disposition": "attachment; filename=attendance_report.pdf"})
 
 @app.post("/activity-log/clear")
