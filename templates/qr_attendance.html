@@ -86,9 +86,9 @@
   <p class="muted" style="margin:0">{{qr_session.year}} · Semester {{qr_session.subject_semester or selected_semester}} · {{qr_session.session_type}} · Lecture {{qr_session.lecture_no}}{% if qr_session.batch %} · {{qr_session.batch}}{% endif %}</p>
   <div class="qr-result-meta"><div><b>Time</b><span>{{qr_session.start_time}} – {{qr_session.end_time}}</span></div><div><b>Scheduled Teacher</b><span>{{qr_session.scheduled_teacher_name or 'Not assigned'}}</span></div><div><b>Conducted By</b><span>{{qr_session.conducted_teacher_name or 'Not assigned'}}</span></div><div><b>Status</b><span>{{qr_session.teacher_status}}</span></div></div>
   <div class="qr-box"><img id="qrImg" src="{{qr}}" alt="Attendance QR"></div>
-  <p class="muted">Students must scan this QR while logged in. <b>The QR changes every 30 seconds</b>, so a photo or screenshot of it stops working quickly. Keep this screen open.</p>
+  <p class="muted">Students must scan this QR while logged in. <b>The QR changes every 20 seconds</b>, so a photo or screenshot of it stops working quickly. Keep this screen open.</p>
   <script>(function(){var img=document.getElementById('qrImg');var base={{ url_for('qr_image', token=token)|tojson }};
-  setInterval(function(){var n=new Image();n.onload=function(){img.src=n.src;};n.src=base+"&t="+Date.now();},20000);})();</script>
+  setInterval(function(){var n=new Image();n.onload=function(){img.src=n.src;};n.src=base+"&t="+Date.now();},10000);})();</script>
   <form method="post" action="{{url_for('close_qr',token=token)}}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger" type="submit">Close QR Session</button></form>
 </div>
 {% endif %}
